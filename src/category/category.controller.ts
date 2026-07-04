@@ -19,12 +19,9 @@ export class CategoryController {
     return await this.categoryService.all();
   }
 
-  @Get(':category_id/products')
-  async getCategoryProducts() {}
-
   @Get('/popular')
-  async getLog() {
-    return await this.categoryService.getLog();
+  async popular() {
+    return await this.categoryService.popular();
   }
 
   @UseGuards(JwtAuthGuard)

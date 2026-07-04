@@ -35,8 +35,8 @@ export class CategoryService {
     return tree;
   }
 
-  async getLog() {
-    const logs = await this.prisma.categoryLog.groupBy({
+  async popular() {
+    const populars = await this.prisma.categoryLog.groupBy({
       by: ['category_id'],
       _sum: {
         count: true,
@@ -49,7 +49,7 @@ export class CategoryService {
       take: 3,
     });
 
-    return logs;
+    return populars;
   }
 
   async createLog(user_id: number, category_id: number) {
