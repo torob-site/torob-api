@@ -1,16 +1,20 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe } from '@nestjs/common';
 import { LocationService } from './location.service';
 
 @Controller('locations')
 export class LocationController {
   constructor(private locationService: LocationService) {}
 
-  @Get('/province')
-  async province() {}
+  @Get('/provinces')
+  async provinces() {
+    return await this.locationService.provinces();
+  }
 
-  @Get('/cities/:city_id')
-  async city() {}
+  @Get('/provinces/:province_id/cities')
+  async cities(@Param('province_id', ParseIntPipe) province_id: number) {
+    return await this.locationService.cities(province_id);
+  }
 
-  @Get('/cities/most-visited')
+  @Get('/cities/popular')
   async mostVisited() {}
 }
