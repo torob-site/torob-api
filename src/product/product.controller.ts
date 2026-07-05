@@ -1,4 +1,4 @@
-import { Controller, Get, Post } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { ProductService } from './product.service';
 
 @Controller('products')
@@ -10,7 +10,4 @@ export class ProductController {
 
   @Get('special-offers')
   async specialOffers() {}
-
-  @Post(':product_id/view')
-  async productView() {}
 }

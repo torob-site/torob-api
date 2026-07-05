@@ -22,20 +22,30 @@ export class HistoryService {
   }
 
   async createView(user_id: number, { product_id }: CreateViewDto) {
-    await this.prisma.productView.upsert({
-      where: {
-        product_id_user_id: {
-          product_id,
-          user_id,
+    try {
+      const viewed = await this.prisma.productView.findUnique({
+        where: {
+          product_id_user_id: { product_id, user_id },
         },
-      },
-      create: {
-        product_id,
-        user_id,
-      },
-      update: {},
-    });
-    return { status: 200 };
+      });
+
+      if (!viewed) {
+        await this.prisma.$transaction([
+          this.prisma.productView.create({
+            data: { product_id, user_id },
+          }),
+          this.prisma.product.update({
+            where: { id: product_id },
+            data: { view_count: { increment: 1 } },
+          }),
+        ]);
+        return { status: 200 };
+      }
+      return { status: 200 };
+    } catch (error) {
+      console.error(`Error to set view`);
+      return { status: 200 };
+    }
   }
 
   async allRemove(user_id: number) {
