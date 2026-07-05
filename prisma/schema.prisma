@@ -30,6 +30,7 @@ model User {
   favorites           Favorite[]
   productClicks       ProductClick[]
   userSearchHistories UserSearchHistory[]
+  priceWatches        PriceWatch[]
 
   @@map("users")
 }
@@ -167,10 +168,12 @@ enum ShopStatus {
 }
 
 model Product {
-  id      Int    @id @default(autoincrement())
-  name    String
-  name_en String
-  slug    String @unique
+  id          Int    @id @default(autoincrement())
+  name        String
+  name_en     String
+  slug        String @unique
+  view_count  Int    @default(0)
+  offer_count Int    @default(0)
 
   category_id Int
   category    Category @relation(fields: [category_id], references: [id])
@@ -188,6 +191,7 @@ model Product {
   favorites             Favorite[]
   productSpecifications ProductSpecification[]
   productClicks         ProductClick[]
+  priceWatches          PriceWatch[]
 
   @@map("products")
 }
@@ -418,10 +422,10 @@ enum VerificationStatus {
 }
 
 model Brand {
-  id   Int    @id @default(autoincrement())
-  name String
+  id      Int    @id @default(autoincrement())
+  name    String
   name_en String
-  slug String
+  slug    String
 
   created_at DateTime  @default(now()) @db.Timestamp(0)
   updated_at DateTime  @updatedAt @db.Timestamp(0)
@@ -625,9 +629,9 @@ model UserSearchHistory {
 
   created_at DateTime @default(now()) @db.Timestamp(0)
 
+  @@unique([keyword, user_id])
   @@index([user_id])
   @@index([keyword])
-  @@unique([keyword, user_id])
   @@map("userSearchHistory")
 }
 
@@ -643,4 +647,19 @@ model SearchLog {
   @@index([keyword])
   @@index([count])
   @@map("searchLogs")
+}
+
+model PriceWatch {
+  id          Int @id @default(autoincrement())
+  watch_price Int
+
+  user_id Int
+  user    User @relation(fields: [user_id], references: [id])
+
+  product_id Int
+  product    Product @relation(fields: [product_id], references: [id])
+
+  created_at DateTime @default(now()) @db.Timestamp(0)
+
+  @@map("priceWatchs")
 }
