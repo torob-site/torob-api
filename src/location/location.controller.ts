@@ -16,5 +16,7 @@ export class LocationController {
   }
 
   @Get('/cities/popular')
-  async mostVisited() {}
+  async mostVisited() {
+    return await this.locationService.popular();
+  }
 }
