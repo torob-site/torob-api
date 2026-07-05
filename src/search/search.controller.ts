@@ -1,9 +1,6 @@
 import {
   Controller,
-  DefaultValuePipe,
   Get,
-  ParseBoolPipe,
-  ParseIntPipe,
   Post,
   Query,
   Req,

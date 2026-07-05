@@ -2,14 +2,11 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { SearchDto, SearchSortEnum, SearchTypeEnum } from './search.dto';
 import { Prisma } from '@prisma/client';
+import { SortTitles } from 'src/common/constants/sort.constant';
 
 @Injectable()
 export class SearchService {
   constructor(private prisma: PrismaService) {}
-
-  private getPopularity(product: any) {
-    return product.productClicks.reduce((sum, click) => sum + click.count, 0);
-  }
 
   async searchShop(
     limit: number,
@@ -34,7 +31,6 @@ export class SearchService {
       shop_id: shop.id,
       is_active: true,
     };
-    const skip = (page - 1) * limit;
     if (is_available) {
       where.is_available = true;
     }
@@ -52,14 +48,37 @@ export class SearchService {
     let orderBy: Prisma.OfferOrderByWithRelationInput = {
       price: 'asc',
     };
-    if (sort === SearchSortEnum.price_asc) orderBy = { price: 'asc' };
-    if (sort === SearchSortEnum.price_desc) orderBy = { price: 'desc' };
-    if (sort === SearchSortEnum.new) orderBy = { created_at: 'desc' };
-    if (sort === SearchSortEnum.top_seller) orderBy = { created_at: 'desc' };
+    switch (sort) {
+      case SearchSortEnum.popularity:
+        orderBy = {
+          product: {
+            view_count: 'desc',
+          },
+        };
+        break;
+
+      case SearchSortEnum.price_asc:
+        orderBy = {
+          price: 'asc',
+        };
+        break;
+
+      case SearchSortEnum.price_desc:
+        orderBy = {
+          price: 'desc',
+        };
+        break;
+
+      case SearchSortEnum.new:
+        orderBy = {
+          created_at: 'desc',
+        };
+        break;
+    }
     const [offers, total, priceRange] = await this.prisma.$transaction([
       this.prisma.offer.findMany({
         where,
-        skip,
+        skip: (page - 1) * limit,
         take: limit,
         orderBy,
         include: {
@@ -67,17 +86,13 @@ export class SearchService {
           product: {
             include: {
               productImages: true,
-              productClicks: true,
             },
           },
         },
       }),
       this.prisma.offer.count({ where }),
       this.prisma.offer.aggregate({
-        where: {
-          shop_id: shop.id,
-          is_active: true,
-        },
+        where,
         _min: {
           price: true,
         },
@@ -86,11 +101,6 @@ export class SearchService {
         },
       }),
     ]);
-    if (sort === SearchSortEnum.popularity) {
-      offers.sort(
-        (a, b) => this.getPopularity(b.product) - this.getPopularity(a.product),
-      );
-    }
     return {
       type: 'shop',
       data: offers,
@@ -125,7 +135,7 @@ export class SearchService {
           title: 'مرتب‌سازی',
           slug: 'sort',
           type: 'dropdown',
-          badge_text: sort ? sort : '',
+          badge_text: sort ? SortTitles[sort] : '',
           items: [
             {
               name: 'محبوب‌ترین',
@@ -174,12 +184,35 @@ export class SearchService {
     brand_id?: number,
     specifications?: Record<string, string[]>,
   ) {
-    const where: Prisma.ProductWhereInput = {
-      OR: [{ name: { contains: query } }, { name_en: { contains: query } }],
-    };
-
+    const where: Prisma.ProductWhereInput = {};
+    if (query) {
+      where.OR = [
+        {
+          name: {
+            contains: query,
+          },
+        },
+        {
+          name_en: {
+            contains: query,
+          },
+        },
+      ];
+    }
     if (brand_id) {
       where.brand_id = brand_id;
+    }
+    if (specifications && Object.keys(specifications).length > 0) {
+      where.AND = Object.entries(specifications).map(([key, values]) => ({
+        productSpecifications: {
+          some: {
+            key,
+            value: {
+              in: values,
+            },
+          },
+        },
+      }));
     }
 
     const offerWhere: Prisma.OfferWhereInput = {
@@ -204,72 +237,67 @@ export class SearchService {
     if (stock_status === 'new') offerWhere.stock_status = '';
     if (stock_status === 'stock') offerWhere.stock_status = 'کارکرده';
 
-    let orderBy: Prisma.OfferOrderByWithRelationInput = {
+    let productOrderBy: Prisma.ProductOrderByWithRelationInput = {};
+    let offerOrderBy: Prisma.OfferOrderByWithRelationInput = {
       price: 'asc',
     };
 
-    if (sort === SearchSortEnum.price_asc) orderBy = { price: 'asc' };
-    if (sort === SearchSortEnum.price_desc) orderBy = { price: 'desc' };
-    if (sort === SearchSortEnum.new) orderBy = { created_at: 'desc' };
+    switch (sort) {
+      case SearchSortEnum.popularity:
+        productOrderBy = {
+          view_count: 'desc',
+        };
+        break;
 
-    const [products] = await this.prisma.$transaction([
+      case SearchSortEnum.price_asc:
+        offerOrderBy = {
+          price: 'asc',
+        };
+        break;
+
+      case SearchSortEnum.price_desc:
+        offerOrderBy = {
+          price: 'desc',
+        };
+        break;
+
+      case SearchSortEnum.new:
+        productOrderBy = {
+          created_at: 'desc',
+        };
+        break;
+
+      case SearchSortEnum.top_seller:
+        productOrderBy = {
+          offer_count: 'desc',
+        };
+        break;
+    }
+    const [products, total] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
+        orderBy: productOrderBy,
+        skip: (page - 1) * limit,
+        take: limit,
         include: {
           brand: true,
           productImages: true,
           productSpecifications: true,
-          productClicks: true,
           offers: {
             where: offerWhere,
-            orderBy,
+            orderBy: offerOrderBy,
             include: {
               shop: true,
             },
           },
         },
       }),
+      this.prisma.product.count({ where }),
     ]);
-
-    let filteredProducts = products.filter(
-      (product) => product.offers.length > 0,
-    );
-
-    if (specifications && Object.keys(specifications).length > 0) {
-      filteredProducts = filteredProducts.filter((product) => {
-        return Object.entries(specifications).every(([key, values]) => {
-          const productValues = product.productSpecifications
-            .filter((spec) => spec.key === key)
-            .map((spec) => spec.value);
-
-          return values.some((value) => productValues.includes(value));
-        });
-      });
-    }
-
-    if (sort === SearchSortEnum.top_seller) {
-      filteredProducts.sort((a, b) => b.offers.length - a.offers.length);
-    }
-
-    if (sort === SearchSortEnum.popularity) {
-      filteredProducts.sort((a, b) => {
-        const aClicks = a.productClicks.reduce(
-          (sum, click) => sum + click.count,
-          0,
-        );
-
-        const bClicks = b.productClicks.reduce(
-          (sum, click) => sum + click.count,
-          0,
-        );
-
-        return bClicks - aClicks;
-      });
-    }
 
     const brandMap = new Map();
 
-    for (const product of filteredProducts) {
+    for (const product of products) {
       if (!product.brand) continue;
 
       if (!brandMap.has(product.brand.id)) {
@@ -288,7 +316,7 @@ export class SearchService {
 
     const specMap = new Map<string, Set<string>>();
 
-    for (const product of filteredProducts) {
+    for (const product of products) {
       for (const spec of product.productSpecifications) {
         if (!specMap.has(spec.key)) {
           specMap.set(spec.key, new Set());
@@ -308,19 +336,16 @@ export class SearchService {
       })),
     }));
 
-    const total = filteredProducts.length;
-    const paginatedProducts = filteredProducts.slice(
-      (page - 1) * limit,
-      page * limit,
-    );
-    const prices = filteredProducts.flatMap((product) =>
+    const prices = products.flatMap((product) =>
       product.offers.map((offer) => Number(offer.price)),
     );
-    const minPrice = prices.length ? Math.min(...prices) : 0;
-    const maxPrice = prices.length ? Math.max(...prices) : 0;
+
+    const minPrice = prices.length > 0 ? Math.min(...prices) : 0;
+
+    const maxPrice = prices.length > 0 ? Math.max(...prices) : 0;
     return {
       type: 'product',
-      data: paginatedProducts,
+      data: products,
       filters1: [
         {
           title: 'انتخاب برند',
@@ -334,14 +359,14 @@ export class SearchService {
           title: 'قیمت',
           slug: 'price',
           type: 'price',
-          badge_text: `از ${price_gt || minPrice} تا ${price_lt || maxPrice}`,
+          badge_text: `از ${price_gt || Number(minPrice)} تا ${price_lt || Number(maxPrice)}`,
           items: [
             {
-              value: minPrice,
+              value: Number(minPrice),
               slug: 'price_gt',
             },
             {
-              value: maxPrice,
+              value: Number(maxPrice),
               slug: 'price_lt',
             },
           ],
@@ -384,7 +409,7 @@ export class SearchService {
           title: 'مرتب‌سازی',
           slug: 'sort',
           type: 'dropdown',
-          badge_text: sort ? sort : '',
+          badge_text: sort ? SortTitles[sort] : '',
           items: [
             {
               name: 'محبوب‌ترین',
