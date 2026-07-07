@@ -12,6 +12,21 @@ import { ProductService } from './product.service';
 export class ProductController {
   constructor(private productService: ProductService) {}
 
+  @Get(':product_id/:slug')
+  async get(@Param('product_id', ParseIntPipe) product_id: number) {}
+
+  @Get(':product_id/price-history')
+  async priceHistory(
+    @Param('product_id', ParseIntPipe) product_id: number,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+  ) {
+    return await this.productService.priceHistory(product_id, page, limit);
+  }
+
+  @Get(':product_id/price-chart')
+  async priceChart() {}
+
   @Get(':product_id/similar')
   async similar(
     @Param('product_id', ParseIntPipe) product_id: number,
