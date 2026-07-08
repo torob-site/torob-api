@@ -13,7 +13,9 @@ export class ProductController {
   constructor(private productService: ProductService) {}
 
   @Get(':product_id/:slug')
-  async get(@Param('product_id', ParseIntPipe) product_id: number) {}
+  async get(@Param('product_id', ParseIntPipe) product_id: number) {
+    return await this.productService.get(product_id)
+  }
 
   @Get(':product_id/price-history')
   async priceHistory(
@@ -25,7 +27,9 @@ export class ProductController {
   }
 
   @Get(':product_id/price-chart')
-  async priceChart() {}
+  async priceChart(@Param('product_id', ParseIntPipe) product_id: number) {
+    return await this.productService.priceChart(product_id)
+  }
 
   @Get(':product_id/similar')
   async similar(

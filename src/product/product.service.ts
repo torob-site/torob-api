@@ -1,10 +1,31 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
+import jalaliday from 'jalaliday';
+import dayjs from 'dayjs';
+
+dayjs.extend(jalaliday);
 
 @Injectable()
 export class ProductService {
   constructor(private prisma: PrismaService) {}
 
+  async get(product_id: number) {
+    const product = await this.prisma.product.findUnique({
+      where: {
+        id: product_id,
+      },
+      include: {
+        productImages: true,
+        productVariants: true,
+        productSpecifications: true,
+        offers: true,
+      },
+    });
+    if (!product) {
+      throw new NotFoundException('product not found');
+    }
+    return product;
+  }
 
   async priceHistory(product_id: number, page: number, limit: number) {
     const [items, total] = await this.prisma.$transaction([
@@ -80,6 +101,52 @@ export class ProductService {
         total,
         totalPages: Math.ceil(total / limit),
       },
+    };
+  }
+
+  async priceChart(product_id: number) {
+    const product = await this.prisma.product.findUnique({
+      where: {
+        id: product_id,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('product not found');
+    }
+
+    const chart = await this.prisma.productPriceChart.findMany({
+      where: {
+        id: product.id,
+      },
+      orderBy: {
+        date: 'asc',
+      },
+    });
+
+    return {
+      labels: chart.map((item) =>
+        dayjs(item.date).calendar('jalali').locale('fa').format('D MMMM YYYY'),
+      ),
+      dataSets: [
+        {
+          label: 'میانگین قیمت',
+          entries: chart.map((item, index) => ({
+            val: item.avg_price,
+            i: index,
+          })),
+        },
+        {
+          label: 'کمترین قیمت',
+          entries: chart.map((item, index) => ({
+            val: item.min_price,
+            i: index,
+          })),
+        },
+      ],
     };
   }
 
