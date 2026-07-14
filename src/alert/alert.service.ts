@@ -128,12 +128,10 @@ export class AlertService {
     };
   }
 
-  async remove(user_id: number, { product_id, variant_id }: RemoveAlertDto) {
-    const watch = await this.prisma.alert.findFirst({
+  async remove(user_id: number, { alert_id }: RemoveAlertDto) {
+    const watch = await this.prisma.alert.findUnique({
       where: {
-        user_id,
-        product_id,
-        variant_id: variant_id ?? null,
+        id: alert_id,
       },
       select: {
         id: true,

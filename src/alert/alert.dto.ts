@@ -27,10 +27,5 @@ export class RemoveAlertDto {
   @ApiProperty()
   @IsNotEmpty()
   @IsInt()
-  product_id: number;
-
-  @ApiProperty()
-  @IsOptional()
-  @IsInt()
-  variant_id: number;
+  alert_id: number;
 }
