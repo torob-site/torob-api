@@ -5,7 +5,7 @@ import { ShopType } from '@prisma/client';
 import { CreateReportDto } from './report.dto';
 
 @UseGuards(JwtAuthGuard)
-@Controller('report')
+@Controller('reports')
 export class ReportController {
   constructor(private reportService: ReportService) {}
 

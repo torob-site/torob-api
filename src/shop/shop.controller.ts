@@ -11,7 +11,7 @@ export class ShopController {
     return await this.shopService.all(q, page, limit);
   }
 
-  @Get(':shop_id/:slug')
+  @Get(':shop_id')
   async get() {}
 
   @Get(':shop_id/products')
