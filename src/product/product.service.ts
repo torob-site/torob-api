@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import jalaliday from 'jalaliday';
 import dayjs from 'dayjs';
@@ -14,16 +14,38 @@ export class ProductService {
       where: {
         id: product_id,
       },
-      include: {
-        productImages: true,
-        productVariants: true,
-        productSpecifications: true,
-        offers: true,
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        name_en: true,
+        brand_id: true,
+        created_at: true,
+        updated_at: true,
+        productImages: {
+          select: {
+            id: true,
+            url: true,
+          },
+        },
+
+        productVariants: {
+          orderBy: {
+            id: 'asc',
+          },
+        },
+        productSpecifications: {
+          orderBy: {
+            id: 'asc',
+          },
+        },
       },
     });
+
     if (!product) {
-      throw new NotFoundException('product not found');
+      throw new NotFoundException('Product not found');
     }
+
     return product;
   }
 
@@ -201,5 +223,83 @@ export class ProductService {
         totalPages: Math.ceil(total / limit),
       },
     };
+  }
+
+  async redirect(data: { offer_id: number; user_id?: number; ip?: string; user_agent?: string; referer?: string }) {
+    const offer = await this.prisma.offer.findUnique({
+      where: {
+        id: data.offer_id,
+      },
+      select: {
+        id: true,
+        more_info_url: true,
+        product_id: true,
+        shop_id: true,
+        is_active: true,
+      },
+    });
+
+    if (!offer) {
+      throw new NotFoundException('Offer not found');
+    }
+
+    if (!offer.is_active) {
+      throw new BadRequestException('Offer is inactive');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.offerClick.create({
+        data: {
+          offer_id: offer.id,
+          product_id: offer.product_id,
+          shop_id: offer.shop_id,
+          user_id: data.user_id,
+          ip: data.ip,
+          user_agent: data.user_agent,
+          referer: data.referer,
+        },
+      }),
+    ]);
+
+    return offer.more_info_url;
+  }
+
+  async offers(product_id: number) {
+    return await this.prisma.offer.findMany({
+      where: {
+        product_id,
+        is_active: true,
+      },
+      select: {
+        id: true,
+        price: true,
+        stock_status: true,
+        more_info_url: true,
+        description: true,
+        warranty: {
+          select: {
+            title: true,
+          },
+        },
+        warranty_duration: true,
+        updated_at: true,
+        shop: {
+          select: {
+            id: true,
+            shop_name: true,
+            shop_logo: true,
+            is_active: true,
+          },
+        },
+      },
+      orderBy: [
+        {
+          price: 'asc',
+        },
+        {
+          updated_at: 'desc',
+        },
+      ],
+    });
   }
 }
