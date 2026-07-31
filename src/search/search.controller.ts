@@ -7,7 +7,7 @@ export class SearchController {
   constructor(private searchService: SearchService) {}
 
   @Get('search')
-  async search(@Query() data: SearchDto, @Query() query: Record<string, string>) {
+  async search(@Query() data: SearchDto, @Query() query: Record<string, string>, @Req() request) {
     const specifications: Record<string, string[]> = {};
 
     Object.keys(query).forEach((key) => {
@@ -16,7 +16,7 @@ export class SearchController {
         specifications[specKey] = query[key].split(',');
       }
     });
-    return await this.searchService.search(data, specifications);
+    return await this.searchService.search(data, specifications, request.user?.userId);
   }
 
   @Get('search-by-image')
@@ -26,7 +26,4 @@ export class SearchController {
   async autocomplete(@Query('keyword') keyword: string, @Req() request) {
     return await this.searchService.autocomplete(keyword, request.user?.userId);
   }
-
-  @Post('search/log')
-  async log() {}
 }

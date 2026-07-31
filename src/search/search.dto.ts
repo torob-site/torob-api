@@ -1,5 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsBoolean, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export enum SearchTypeEnum {
   product = 'product',
@@ -16,66 +17,75 @@ export enum SearchSortEnum {
 }
 
 export class SearchDto {
-  @ApiProperty({ enum: SearchTypeEnum })
-  @IsNotEmpty()
-  @IsEnum(SearchTypeEnum)
-  @IsString()
-  type: SearchTypeEnum;
-
-  @ApiProperty()
+  @ApiPropertyOptional()
   @IsOptional()
   @IsString()
   query?: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  q?: string;
+  
+  @ApiPropertyOptional()
   @IsOptional()
   @IsInt()
+  @Type(() => Number)
   @Min(1)
   page: number = 1;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
   @IsOptional()
   @IsInt()
+  @Type(() => Number)
   @Min(20)
   limit: number = 20;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
   @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true || value === '1')
   @IsBoolean()
   is_available?: boolean;
 
-  @ApiProperty({ enum: SearchSortEnum })
+  @ApiPropertyOptional({ enum: SearchSortEnum })
   @IsOptional()
   @IsEnum(SearchSortEnum)
   sort: SearchSortEnum = SearchSortEnum.popularity;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
+  @Min(0)
   price_gt?: number;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
+  @Min(0)
   price_lt?: number;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true || value === '1')
+  @IsBoolean()
+  has_pickup?: boolean;
+
+  @ApiPropertyOptional()
   @IsOptional()
   @IsString()
-  shop_type: string;
+  condition?: string;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
   @IsOptional()
-  @IsString()
-  stock_status: string;
-
-  @ApiProperty()
-  @IsOptional()
+  @Type(() => Number)
   @IsInt()
-  brand_id: number;
+  brand_id?: number;
 
-  @ApiProperty()
+  @ApiPropertyOptional()
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
-  category_id: number;
+  category_id?: number;
 }
