@@ -13,6 +13,7 @@ export class UserService {
         id: user_id,
       },
       include: {
+        city: true,
         shopMembers: {
           include: {
             shop: {
@@ -57,7 +58,6 @@ export class UserService {
       id: user.id,
       name: user.name,
       phone: user.phone,
-
       offline_panel_accesses,
       online_panel_accesses,
     };

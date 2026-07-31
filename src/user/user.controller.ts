@@ -8,7 +8,7 @@ import { UserSelectCity } from './user.dto';
 export class UserController {
   constructor(private userService: UserService) {}
 
-  @Get()
+  @Get('me')
   async me(@Req() request) {
     return await this.userService.me(request.user.userId);
   }
