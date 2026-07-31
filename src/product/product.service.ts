@@ -142,7 +142,7 @@ export class ProductService {
 
     const priceHistory = await this.prisma.productPriceHistory.findMany({
       where: {
-        id: product.id,
+        product_id: product.id,
       },
       orderBy: {
         date: 'asc',
@@ -176,9 +176,11 @@ export class ProductService {
         id: product_id,
       },
     });
+
     if (!product) {
       throw new NotFoundException('product not found');
     }
+
     const [products, total] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where: {
@@ -195,30 +197,54 @@ export class ProductService {
         take: limit,
         include: {
           productImages: true,
+
           offers: {
-            include: {
-              badges: true,
+            where: {
+              is_active: true,
             },
             orderBy: {
               price: 'asc',
             },
-            take: 1,
+            include: {
+              shop: true,
+              badges: true,
+            },
           },
         },
       }),
+
       this.prisma.product.count({
         where: {
           id: {
             not: product.id,
           },
+          category_id: product.category_id,
+          brand_id: product.brand_id,
         },
       }),
     ]);
+
+    const productsWithDisplayInfo = products.map((product) => {
+      const sellerCount = product.offers.length;
+
+      const mainOffer = sellerCount === 0 ? null : product.offers[0];
+      const { offers, ...rest } = product;
+
+      return {
+        ...rest,
+
+        badges: mainOffer?.badges ?? [],
+
+        shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
+
+        shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
+      };
+    });
     return {
-      data: products,
+      data: productsWithDisplayInfo,
       pagination: {
-        page: page,
-        limit: limit,
+        page,
+        limit,
         total,
         totalPages: Math.ceil(total / limit),
       },
@@ -247,19 +273,17 @@ export class ProductService {
       throw new BadRequestException('Offer is inactive');
     }
 
-    await this.prisma.$transaction([
-      this.prisma.offerClick.create({
-        data: {
-          offer_id: offer.id,
-          product_id: offer.product_id,
-          shop_id: offer.shop_id,
-          user_id: data.user_id,
-          ip: data.ip,
-          user_agent: data.user_agent,
-          referer: data.referer,
-        },
-      }),
-    ]);
+    await this.prisma.offerClick.create({
+      data: {
+        offer_id: offer.id,
+        product_id: offer.product_id,
+        shop_id: offer.shop_id,
+        user_id: data.user_id ?? null,
+        ip: data.ip ?? null,
+        user_agent: data.user_agent ?? null,
+        referer: data.referer ?? null,
+      },
+    });
 
     return offer.more_info_url;
   }
