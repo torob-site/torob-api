@@ -23,6 +23,11 @@ export class ShopService {
       this.prisma.shop.findMany({
         where,
         skip,
+        select: {
+          id: true,
+          shop_logo: true,
+          shop_name: true,
+        },
         take: limit,
         orderBy: {
           id: 'desc',
