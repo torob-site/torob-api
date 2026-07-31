@@ -84,17 +84,18 @@ model Favorite {
 }
 
 model Category {
-  id             Int            @id @default(autoincrement())
+  id             Int             @id @default(autoincrement())
   title          String
-  url            String         @unique
+  url            String          @unique
   parent_id      Int?
-  created_at     DateTime       @default(now()) @db.Timestamp(0)
-  updated_at     DateTime       @updatedAt
-  parent         Category?      @relation("CategoryTree", fields: [parent_id], references: [id])
-  children       Category[]     @relation("CategoryTree")
+  created_at     DateTime        @default(now()) @db.Timestamp(0)
+  updated_at     DateTime        @updatedAt
+  parent         Category?       @relation("CategoryTree", fields: [parent_id], references: [id])
+  children       Category[]      @relation("CategoryTree")
   shopCategories ShopCategory[]
   categoryLogs   CategoryLog[]
   products       Product[]
+  specifications Specification[]
 
   @@unique([title, parent_id])
   @@index([parent_id])
@@ -176,6 +177,7 @@ model Product {
   slug        String @unique
   view_count  Int    @default(0)
   offer_count Int    @default(0)
+  is_authentic Boolean @default(false)
 
   category_id Int
   category    Category @relation(fields: [category_id], references: [id])
@@ -279,16 +281,40 @@ model ProductImage {
   @@map("productImages")
 }
 
-model ProductSpecification {
+model Specification {
   id Int @id @default(autoincrement())
 
-  key   String
+  title String
+
+  filterable Boolean @default(true)
+
+  category_id Int
+  category    Category @relation(fields: [category_id], references: [id])
+
+  productSpecifications ProductSpecification[]
+
+  created_at DateTime @default(now()) @db.Timestamp(0)
+  updated_at DateTime @updatedAt
+
+  @@unique([title, category_id])
+  @@index([category_id])
+  @@map("specifications")
+}
+
+model ProductSpecification {
+  id    Int               @id @default(autoincrement())
   value String
   type  SpecificationType
+
+  specification_id Int
+  specification    Specification @relation(fields: [specification_id], references: [id])
 
   product_id Int
   product    Product @relation(fields: [product_id], references: [id])
 
+  @@unique([product_id, specification_id])
+  @@index([product_id])
+  @@index([specification_id])
   @@map("productSpecifications")
 }
 
@@ -561,7 +587,7 @@ model Offer {
   price         BigInt
   description   String
   stock_status  String?  @default("")
-  more_info_url String  @default("")
+  more_info_url String   @default("")
   is_active     Boolean  @default(true)
   is_available  Boolean? @default(true)
 
