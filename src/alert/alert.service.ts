@@ -16,7 +16,7 @@ export class AlertService {
           product_id: true,
         },
       });
-      return alerts;
+      return alerts.map((x) => x.product_id);
     }
     const alerts = await this.prisma.alert.findMany({
       where: {
@@ -30,11 +30,38 @@ export class AlertService {
                 is_main: true,
               },
             },
+            offers: {
+              where: {
+                is_active: true,
+              },
+              include: {
+                shop: true,
+                badges: true,
+              },
+            },
           },
         },
       },
     });
-    return alerts;
+    const productsWithDisplayInfo = alerts.map((favorite) => {
+      const product = favorite.product;
+
+      const sellerCount = product.offers.length;
+
+      const mainOffer = sellerCount === 0 ? null : sellerCount === 1 ? product.offers[0] : product.offers.reduce((min, offer) => (Number(offer.price) < Number(min.price) ? offer : min));
+      const { offers, ...rest } = product;
+
+      return {
+        ...rest,
+        badges: mainOffer?.badges ?? [],
+
+        shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
+
+        shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
+      };
+    });
+
+    return productsWithDisplayInfo;
   }
 
   async create(userId: number, dto: CreateAlertDto) {
