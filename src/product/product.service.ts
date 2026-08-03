@@ -297,22 +297,39 @@ export class ProductService {
       select: {
         id: true,
         price: true,
-        stock_status: true,
-        more_info_url: true,
         description: true,
+        warranty_duration: true,
         warranty: {
           select: {
             title: true,
           },
         },
-        warranty_duration: true,
-        updated_at: true,
         shop: {
           select: {
             id: true,
             shop_name: true,
-            shop_logo: true,
-            is_active: true,
+            address: true,
+            type: true,
+            city: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            shopImages: {
+              select: {
+                id: true,
+                url: true,
+              },
+            },
+            shopContacts: {
+              select: {
+                id: true,
+                type: true,
+                platform: true,
+                value: true,
+              },
+            },
           },
         },
       },
@@ -325,5 +342,60 @@ export class ProductService {
         },
       ],
     });
+  }
+
+  async mapOffers(product_id: number, user_id?: number) {
+    const TEHRAN_CITY_ID = 1;
+
+    let targetCityId = TEHRAN_CITY_ID;
+
+    if (user_id) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: user_id },
+        select: { city_id: true },
+      });
+      if (user?.city_id) {
+        targetCityId = user.city_id;
+      }
+    }
+
+    const offers = await this.prisma.offer.findMany({
+      where: {
+        product_id,
+        is_active: true,
+        shop: {
+          city_id: targetCityId,
+        },
+      },
+      select: {
+        id: true,
+        price: true,
+        description: true,
+        warranty_duration: true,
+        warranty: {
+          select: { title: true },
+        },
+        shop: {
+          select: {
+            id: true,
+            shop_name: true,
+            address: true,
+            type: true,
+            city: {
+              select: { id: true, name: true },
+            },
+            shopImages: {
+              select: { id: true, url: true },
+            },
+            shopContacts: {
+              select: { id: true, type: true, platform: true, value: true },
+            },
+          },
+        },
+      },
+      orderBy: [{ price: 'asc' }, { updated_at: 'desc' }],
+    });
+
+    return offers;
   }
 }
