@@ -5,21 +5,21 @@ import { ShopType } from '@prisma/client';
 import { CreateReportDto } from './report.dto';
 
 @UseGuards(JwtAuthGuard)
-@Controller('reports')
+@Controller('')
 export class ReportController {
   constructor(private reportService: ReportService) {}
 
-  @Get()
+  @Get('users/me/reports')
   async all(@Req() request) {
     return await this.reportService.all(request.user.userId);
   }
 
-  @Get('options')
+  @Get('reports/options')
   async options(@Query('shop_type') shop_type: ShopType) {
     return this.reportService.options(shop_type);
   }
 
-  @Post()
+  @Post('users/me/reports')
   async create(@Req() request, @Body() data: CreateReportDto) {
     return await this.reportService.create(request.user.userId, data);
   }

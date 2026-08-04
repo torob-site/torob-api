@@ -4,7 +4,7 @@ import { JwtAuthGuard } from 'src/auth/auth.guard';
 import { CreateAlertDto, RemoveAlertDto } from './alert.dto';
 
 @UseGuards(JwtAuthGuard)
-@Controller('alerts')
+@Controller('users/me/alerts')
 export class AlertController {
   constructor(private alertService: AlertService) {}
 
