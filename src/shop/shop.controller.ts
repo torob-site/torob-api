@@ -12,7 +12,9 @@ export class ShopController {
   }
 
   @Get(':shop_id')
-  async get() {}
+  async get(@Param('shop_id', ParseIntPipe) shop_id: number) {
+    return await this.shopService.get(shop_id)
+  }
 
   @Get(':shop_id/products')
   async shopProducts(@Param('shop_id', ParseIntPipe) shop_id: number, @Body() data: GetShopProductsDto) {

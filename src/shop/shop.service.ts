@@ -268,4 +268,37 @@ export class ShopService {
       },
     };
   }
+
+  async get(shop_id: number) {
+    const shop = await this.prisma.shop.findUnique({
+      where: {
+        id: shop_id,
+        type: 'ONLINE_SHOP',
+      },
+      select: {
+        id: true,
+        shop_name: true,
+        shop_logo: true,
+        domain: true,
+        city: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        province: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        is_active: true,
+        address: true,
+      },
+    });
+    if (!shop) {
+      throw new NotFoundException('shop not found');
+    }
+    return shop;
+  }
 }
