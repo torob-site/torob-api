@@ -65,22 +65,22 @@ export class SearchService {
   }
 
   async getCategoryBreadcrumb(categoryId: number) {
-    const rows = await this.prisma.$queryRaw<{ id: number; name: string }[]>`
+    const rows = await this.prisma.$queryRaw<{ id: number; title: string }[]>`
     WITH RECURSIVE tree AS (
-      SELECT id, name, parent_id, 0 as level
+      SELECT id, title, parent_id, 0 as level
       FROM \`categories\`
       WHERE id = ${categoryId}
       UNION ALL
-      SELECT c.id, c.name, c.parent_id, t.level + 1
+      SELECT c.id, c.title, c.parent_id, t.level + 1
       FROM \`categories\` c
       JOIN tree t ON t.parent_id = c.id
     )
-    SELECT id, name FROM tree ORDER BY level DESC;
+    SELECT id, title FROM tree ORDER BY level DESC;
   `;
     return {
       categories: rows.map((r) => ({
         id: r.id,
-        title: r.name,
+        title: r.title,
       })),
     };
   }
@@ -162,6 +162,12 @@ export class SearchService {
     ]);
     if (total === 0) {
       return {
+        shop: {
+          id: shop_id,
+          shop_name,
+          shop_logo,
+          domain,
+        },
         data: [],
         filters2: [
           {
@@ -200,21 +206,22 @@ export class SearchService {
       };
     }
     const offersWithInfo = offers.map((offer) => {
-      const { product, badges, price } = offer;
+      const { product, badges, price, is_available } = offer;
 
       return {
         ...product,
         badges,
         shop_price: `${Number(price).toLocaleString('fa-IR')} تومان`,
         shop_text: `در ${shop_name}`,
+        is_available: is_available,
       };
     });
     return {
       shop: {
         id: shop_id,
-        name: shop_name,
-        logo: shop_logo,
-        domain: domain,
+        shop_name,
+        shop_logo,
+        domain,
       },
       data: offersWithInfo,
       max_price: priceRange._max.price ? Number(priceRange._max.price) : 0,
@@ -317,6 +324,9 @@ export class SearchService {
 
     if (condition === 'new') offerWhere.stock_status = '';
     if (condition === 'stock') offerWhere.stock_status = 'کارکرده';
+    where.offers = {
+      some: offerWhere,
+    };
 
     let productOrderBy: Prisma.ProductOrderByWithRelationInput = {};
     let offerOrderBy: Prisma.OfferOrderByWithRelationInput = {
@@ -355,7 +365,6 @@ export class SearchService {
         break;
     }
 
-    // ─── مشکل ۴: min/max از کل نتایج با offer.aggregate ───
     const [products, total, priceRange] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
@@ -479,8 +488,8 @@ export class SearchService {
         brandMap.set(product.brand.id, {
           id: product.brand.id,
           slug: product.brand.slug,
-          name1: product.brand.name,
-          name2: product.brand.name_en,
+          name: product.brand.name,
+          name_en: product.brand.name_en,
         });
       }
     }
@@ -557,6 +566,7 @@ export class SearchService {
         badges: mainOffer?.badges ?? [],
         shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
         shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
+        is_available: mainOffer?.is_available,
       };
     });
 
@@ -696,6 +706,7 @@ export class SearchService {
     const offerWhere: Prisma.OfferWhereInput = {
       is_active: true,
     };
+
     if (is_available) {
       offerWhere.is_available = true;
     }
@@ -713,6 +724,9 @@ export class SearchService {
     }
     if (condition === 'new') offerWhere.stock_status = '';
     if (condition === 'stock') offerWhere.stock_status = 'کارکرده';
+    where.offers = {
+      some: offerWhere,
+    };
     let productOrderBy: Prisma.ProductOrderByWithRelationInput = {};
     let offerOrderBy: Prisma.OfferOrderByWithRelationInput = {
       price: 'asc',
@@ -880,8 +894,8 @@ export class SearchService {
         brandMap.set(product.brand.id, {
           id: product.brand.id,
           slug: product.brand.slug,
-          name1: product.brand.name,
-          name2: product.brand.name_en,
+          name: product.brand.name,
+          name_en: product.brand.name_en,
         });
       }
     }
@@ -941,6 +955,7 @@ export class SearchService {
         badges: mainOffer?.badges ?? [],
         shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
         shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
+        is_available: mainOffer?.is_available,
       };
     });
 
@@ -1026,7 +1041,7 @@ export class SearchService {
     };
   }
 
-  async search({ sort, is_available, limit, page, query, price_gt, condition, has_pickup, price_lt, brand_id, category_id, q }: SearchDto, specifications?: Record<string, string[]>, user_id?: number) {
+  async search(user_id: number, { sort, is_available, limit, page, query, price_gt, condition, has_pickup, price_lt, brand_id, category_id, q }: SearchDto, specifications?: Record<string, string[]>) {
     if (category_id) {
       return this.searchCategory(page, limit, has_pickup, condition, is_available, sort, price_gt, price_lt, category_id, brand_id, specifications, q, user_id);
     }
@@ -1063,7 +1078,7 @@ export class SearchService {
     return this.searchProduct(page, limit, query, has_pickup, condition, is_available, sort, price_gt, price_lt, brand_id, specifications);
   }
 
-  async autocomplete(keyword: string, user_id?: number) {
+  async autocomplete(keyword: string, user_id: number) {
     if (!keyword?.trim()) {
       return [];
     }
