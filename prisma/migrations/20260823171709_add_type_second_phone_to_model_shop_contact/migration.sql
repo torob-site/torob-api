@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `shopcontacts` MODIFY `type` ENUM('PHONE', 'MESSENGER', 'SOCIAL_MEDIA', 'SECOND_PHONE') NOT NULL;

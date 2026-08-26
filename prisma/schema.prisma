@@ -155,6 +155,7 @@ model Shop {
   shopMembers       ShopMember[]
   shopDocuments     ShopDocument[]
   offerClicks       OfferClick[]
+  transactions      Transaction[]
 
   @@map("shops")
 }
@@ -171,12 +172,12 @@ enum ShopStatus {
 }
 
 model Product {
-  id          Int    @id @default(autoincrement())
-  name        String
-  name_en     String
-  slug        String @unique
-  view_count  Int    @default(0)
-  offer_count Int    @default(0)
+  id           Int     @id @default(autoincrement())
+  name         String
+  name_en      String
+  slug         String  @unique
+  view_count   Int     @default(0)
+  offer_count  Int     @default(0)
   is_authentic Boolean @default(false)
 
   category_id Int
@@ -395,6 +396,7 @@ enum ContactType {
   PHONE
   MESSENGER
   SOCIAL_MEDIA
+  SECOND_PHONE
 }
 
 enum ContactPlatform {
@@ -411,8 +413,8 @@ model ShopWorkingHour {
   day          DayOfWeek
   shift_number Int
 
-  start_time DateTime @db.Time
-  end_time   DateTime @db.Time
+  start_time DateTime @db.Time(0)
+  end_time   DateTime @db.Time(0)
 
   shop_id Int
   shop    Shop @relation(fields: [shop_id], references: [id])
@@ -585,14 +587,15 @@ model Offer {
   shop    Shop @relation(fields: [shop_id], references: [id])
 
   price         BigInt
-  description   String
-  stock_status  String?  @default("")
-  more_info_url String   @default("")
-  is_active     Boolean  @default(true)
-  is_available  Boolean? @default(true)
-
-  warranty_id Int
-  warranty    Warranty @relation(fields: [warranty_id], references: [id])
+  description   String?
+  stock_status  String?   @default("")
+  more_info_url String    @default("")
+  is_active     Boolean   @default(true)
+  is_available  Boolean   @default(true)
+  is_deleted    Boolean   @default(false)
+  view_count    Int       @default(0)
+  warranty_id   Int?
+  warranty      Warranty? @relation(fields: [warranty_id], references: [id])
 
   warranty_duration Int
 
@@ -615,7 +618,7 @@ model OfferImage {
   is_main Boolean @default(true)
 
   offer_id Int
-  offer    Offer @relation(fields: [offer_id], references: [id])
+  offer    Offer @relation(fields: [offer_id], references: [id], onDelete: Cascade)
 
   created_at DateTime @default(now()) @db.Timestamp(0)
   updated_at DateTime @updatedAt @db.Timestamp(0)
@@ -629,7 +632,7 @@ model OfferVideo {
   is_main Boolean @default(true)
 
   offer_id Int
-  offer    Offer @relation(fields: [offer_id], references: [id])
+  offer    Offer @relation(fields: [offer_id], references: [id], onDelete: Cascade)
 
   created_at DateTime @default(now()) @db.Timestamp(0)
   updated_at DateTime @updatedAt @db.Timestamp(0)
@@ -768,7 +771,7 @@ model OfferHistory {
   id Int @id @default(autoincrement())
 
   offer_id Int
-  offer    Offer @relation(fields: [offer_id], references: [id])
+  offer    Offer @relation(fields: [offer_id], references: [id], onDelete: Cascade)
 
   old_price Int?
   new_price Int?
@@ -808,4 +811,26 @@ enum OfferHistoryType {
   PRICE_DECREASE
   AVAILABLE
   UNAVAILABLE
+}
+
+model Transaction {
+  id          Int             @id @default(autoincrement())
+  amount      Int
+  title       String
+  description String?
+  type        TransactionType
+
+  shop_id Int
+  shop    Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@map("transactions")
+}
+
+enum TransactionType {
+  DEPOSIT
+  EXPENSE
+  PROMOTIONAL_CREDIT
 }
