@@ -6,7 +6,7 @@ import { CreateFavoriteDto } from './favorite.dto';
 export class FavoriteService {
   constructor(private prisma: PrismaService) {}
 
-  async all(user_id: number, only_ids: boolean) {
+  async all(user_id: number, only_ids?: boolean) {
     if (only_ids) {
       const favorites = await this.prisma.favorite.findMany({
         where: { user_id },
@@ -50,6 +50,7 @@ export class FavoriteService {
         shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
 
         shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
+        is_available: mainOffer?.is_available,
       };
     });
 
