@@ -43,6 +43,7 @@ export class HistoryService {
         shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
 
         shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
+        is_available: mainOffer?.is_available,
       };
     });
     return productsWithDisplayInfo;
