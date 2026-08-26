@@ -14,17 +14,6 @@ export class UserService {
       },
       include: {
         city: true,
-        shopMembers: {
-          include: {
-            shop: {
-              select: {
-                id: true,
-                shop_name: true,
-                type: true,
-              },
-            },
-          },
-        },
       },
     });
 
@@ -32,35 +21,7 @@ export class UserService {
       throw new NotFoundException('user not found');
     }
 
-    const offline_panel_accesses = user.shopMembers
-      .filter((member) => member.shop.type === ShopType.OFFLINE_SHOP)
-      .map((member) => ({
-        id: member.shop.id,
-        name: member.shop.shop_name,
-        permissions: {
-          is_owner: member.is_owner,
-          is_admin: member.is_admin,
-        },
-      }));
-
-    const online_panel_accesses = user.shopMembers
-      .filter((member) => member.shop.type === ShopType.ONLINE_SHOP)
-      .map((member) => ({
-        id: member.shop.id,
-        name: member.shop.shop_name,
-        permissions: {
-          is_owner: member.is_owner,
-          is_admin: member.is_admin,
-        },
-      }));
-
-    return {
-      id: user.id,
-      name: user.name,
-      phone: user.phone,
-      offline_panel_accesses,
-      online_panel_accesses,
-    };
+    return user;
   }
 
   async selectCity({ city_id }: UserSelectCity, user_id: number) {
