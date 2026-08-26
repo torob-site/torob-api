@@ -3,6 +3,8 @@ import { ReportService } from './report.service';
 import { JwtAuthGuard } from 'src/auth/auth.guard';
 import { ShopType } from '@prisma/client';
 import { CreateReportDto } from './report.dto';
+import { type User } from '@prisma/client';
+import { UserPipe } from 'src/auth/user.decorator';
 
 @UseGuards(JwtAuthGuard)
 @Controller('')
@@ -10,8 +12,8 @@ export class ReportController {
   constructor(private reportService: ReportService) {}
 
   @Get('users/me/reports')
-  async all(@Req() request) {
-    return await this.reportService.all(request.user.userId);
+  async all(@UserPipe() user: User) {
+    return await this.reportService.all(user.id);
   }
 
   @Get('reports/options')
@@ -20,7 +22,7 @@ export class ReportController {
   }
 
   @Post('users/me/reports')
-  async create(@Req() request, @Body() data: CreateReportDto) {
-    return await this.reportService.create(request.user.userId, data);
+  async create(@UserPipe() user: User, @Body() data: CreateReportDto) {
+    return await this.reportService.create(user.id, data);
   }
 }

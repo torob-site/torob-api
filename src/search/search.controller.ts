@@ -1,13 +1,17 @@
-import { Controller, Get, Post, Query, Req } from '@nestjs/common';
+import { Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { SearchService } from './search.service';
 import { SearchDto } from './search.dto';
+import { OptionalJwtGuard } from 'src/auth/optional-jwt.guard';
+import { type User } from '@prisma/client';
+import { UserPipe } from 'src/auth/user.decorator';
 
 @Controller('')
 export class SearchController {
   constructor(private searchService: SearchService) {}
 
   @Get('search')
-  async search(@Query() data: SearchDto, @Query() query: Record<string, string>, @Req() request) {
+  @UseGuards(OptionalJwtGuard)
+  async search(@Query() data: SearchDto, @Query() query: Record<string, string>, @UserPipe() user: User) {
     const specifications: Record<string, string[]> = {};
 
     Object.keys(query).forEach((key) => {
@@ -16,14 +20,15 @@ export class SearchController {
         specifications[specKey] = query[key].split(',');
       }
     });
-    return await this.searchService.search(data, specifications, request.user?.userId);
+    return await this.searchService.search(user.id, data, specifications);
   }
 
   @Get('search-by-image')
   async searcgByImage() {}
 
   @Get('search/autocomplete')
-  async autocomplete(@Query('keyword') keyword: string, @Req() request) {
-    return await this.searchService.autocomplete(keyword, request.user?.userId);
+  @UseGuards(OptionalJwtGuard)
+  async autocomplete(@Query('keyword') keyword: string, @UserPipe() user: User) {
+    return await this.searchService.autocomplete(keyword, user.id);
   }
 }

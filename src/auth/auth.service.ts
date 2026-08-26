@@ -22,6 +22,8 @@ export class AuthService {
       throw new NotFoundException('user not found');
     }
     const token = await this.jwt.sign({ sub: user.id });
-    return token;
+    return {
+      token: token,
+    };
   }
 }

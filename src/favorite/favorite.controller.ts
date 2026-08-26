@@ -2,6 +2,8 @@ import { Body, Controller, Get, ParseBoolPipe, Post, Query, Req, UseGuards } fro
 import { FavoriteService } from './favorite.service';
 import { JwtAuthGuard } from 'src/auth/auth.guard';
 import { CreateFavoriteDto } from './favorite.dto';
+import { UserPipe } from 'src/auth/user.decorator';
+import { type User } from '@prisma/client';
 
 @UseGuards(JwtAuthGuard)
 @Controller('users/me/favorites')
@@ -9,12 +11,12 @@ export class FavoriteController {
   constructor(private favoriteService: FavoriteService) {}
 
   @Get()
-  async all(@Req() request, @Query('only_ids', ParseBoolPipe) only_ids: boolean) {
-    return await this.favoriteService.all(request.user.userId, only_ids);
+  async all(@UserPipe() user: User, @Query('only_ids', new ParseBoolPipe({ optional: true })) only_ids?: boolean) {
+    return await this.favoriteService.all(user.id, only_ids);
   }
 
   @Post('toggle')
-  async toggle(@Req() request, @Body() data: CreateFavoriteDto) {
-    return await this.favoriteService.toggle(request.user.userId, data);
+  async toggle(@UserPipe() user: User, @Body() data: CreateFavoriteDto) {
+    return await this.favoriteService.toggle(user.id, data);
   }
 }

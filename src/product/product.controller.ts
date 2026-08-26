@@ -2,6 +2,8 @@ import { Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Query, Req, Res
 import { ProductService } from './product.service';
 import type { Request, Response } from 'express';
 import { OptionalJwtGuard } from 'src/auth/optional-jwt.guard';
+import { type User } from '@prisma/client';
+import { UserPipe } from 'src/auth/user.decorator';
 
 @Controller('products')
 export class ProductController {
@@ -12,10 +14,10 @@ export class ProductController {
 
   @Get('/redirect')
   @UseGuards(OptionalJwtGuard)
-  async redirect(@Req() request, @Query('offer_id', ParseIntPipe) offer_id: number, @Req() req: Request, @Res() res: Response) {
+  async redirect(@UserPipe() user: User, @Query('offer_id', ParseIntPipe) offer_id: number, @Req() req: Request, @Res() res: Response) {
     const url = await this.productService.redirect({
       offer_id,
-      user_id: request.user.userId,
+      user_id: user.id,
       ip: req.headers['x-forwarded-for']?.toString().split(',')[0] ?? req.socket.remoteAddress,
       user_agent: req.get('user-agent'),
       referer: req.get('referer'),
@@ -51,7 +53,7 @@ export class ProductController {
 
   @Get(':product_id/map/offers')
   @UseGuards(OptionalJwtGuard)
-  async productMapOffers(@Param('product_id', ParseIntPipe) product_id: number, @Req() request) {
-    return await this.productService.mapOffers(product_id, request.user.userId);
+  async productMapOffers(@Param('product_id', ParseIntPipe) product_id: number, @UserPipe() user: User) {
+    return await this.productService.mapOffers(product_id, user.id);
   }
 }

@@ -26,7 +26,7 @@ export class SearchDto {
   @IsOptional()
   @IsString()
   q?: string;
-  
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsInt()
