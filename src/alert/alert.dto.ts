@@ -10,11 +10,6 @@ export class CreateAlertDto {
   @ApiProperty()
   @IsOptional()
   @IsInt()
-  variant_id: number;
-
-  @ApiProperty()
-  @IsNotEmpty()
-  @IsInt()
   watch_price: number;
 
   @ApiProperty()
@@ -27,5 +22,5 @@ export class RemoveAlertDto {
   @ApiProperty()
   @IsNotEmpty()
   @IsInt()
-  alert_id: number;
+  product_id: number;
 }

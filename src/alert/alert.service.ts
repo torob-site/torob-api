@@ -6,7 +6,7 @@ import { CreateAlertDto, RemoveAlertDto } from './alert.dto';
 export class AlertService {
   constructor(private prisma: PrismaService) {}
 
-  async all(user_id: number, only_ids: boolean) {
+  async all(user_id: number, only_ids?: boolean) {
     if (only_ids) {
       const alerts = await this.prisma.alert.findMany({
         where: {
@@ -68,20 +68,17 @@ export class AlertService {
     const hasPrice = dto.watch_price != null;
     const hasAvailability = dto.watch_availability === true;
 
-    if (hasPrice === hasAvailability) {
+    if (!hasPrice && !hasAvailability) {
       throw new BadRequestException('choose either watch_price or watch_availability');
+    }
+
+    if (hasPrice && hasAvailability) {
+      throw new BadRequestException('choose only one: watch_price OR watch_availability');
     }
 
     const product = await this.prisma.product.findUnique({
       where: {
         id: dto.product_id,
-      },
-      include: {
-        productVariants: {
-          select: {
-            id: true,
-          },
-        },
       },
     });
 
@@ -89,23 +86,14 @@ export class AlertService {
       throw new NotFoundException('product not found');
     }
 
-    if (product.productVariants.length > 0) {
-      if (!dto.variant_id) {
-        throw new BadRequestException('variant_id is required');
-      }
-
-      const variant = product.productVariants.find((item) => item.id === dto.variant_id);
-
-      if (!variant) {
-        throw new NotFoundException('variant not found');
-      }
-    }
-
     const offer = await this.prisma.offer.findFirst({
       where: {
-        product_id: dto.product_id,
-        variant_id: dto.variant_id ?? null,
+        product_id: product.id,
         is_active: true,
+        is_deleted: false,
+        price: {
+          gt: 0,
+        },
       },
       orderBy: {
         price: 'asc',
@@ -117,34 +105,28 @@ export class AlertService {
     });
 
     if (!offer) {
-      throw new NotFoundException('offer not found');
+      throw new NotFoundException('no valid offer found for this product');
     }
 
-    if (hasAvailability && offer.is_available) {
-      throw new BadRequestException('product is already available');
+    const currentPrice = Number(offer.price);
+
+
+    if (hasAvailability) {
+      if (offer.is_available === true) {
+        throw new BadRequestException('product is already available');
+      }
     }
 
-    if (hasPrice && dto.watch_price! >= Number(offer.price)) {
-      throw new BadRequestException('watch price must be lower than current price');
+    if (hasPrice) {
+      if (dto.watch_price! >= currentPrice) {
+        throw new BadRequestException(`watch price (${dto.watch_price}) must be lower than current price (${currentPrice.toLocaleString('fa-IR')})`);
+      }
     }
 
-    await this.prisma.alert.upsert({
-      where: {
-        product_id_variant_id_user_id: {
-          product_id: dto.product_id,
-          variant_id: dto.variant_id ?? null,
-          user_id: userId,
-        },
-      },
-      update: {
-        watch_price: hasPrice ? dto.watch_price : null,
-        watch_availability: hasAvailability,
-        disabled: false,
-      },
-      create: {
+    const alert = await this.prisma.alert.create({
+      data: {
         user_id: userId,
         product_id: dto.product_id,
-        variant_id: dto.variant_id,
         watch_price: hasPrice ? dto.watch_price : null,
         watch_availability: hasAvailability,
       },
@@ -155,11 +137,11 @@ export class AlertService {
     };
   }
 
-  async remove(user_id: number, { alert_id }: RemoveAlertDto) {
-    const watch = await this.prisma.alert.findUnique({
+  async remove(user_id: number, { product_id }: RemoveAlertDto) {
+    const watch = await this.prisma.alert.findFirst({
       where: {
         user_id,
-        id: alert_id,
+        product_id,
       },
       select: {
         id: true,
@@ -179,5 +161,21 @@ export class AlertService {
     return {
       status: 200,
     };
+  }
+
+  async getByProduct(user_id: number, product_id: number) {
+    const alert = await this.prisma.alert.findFirst({
+      where: {
+        user_id,
+        product_id,
+      },
+      select: {
+        disabled: true,
+        watch_price: true,
+        created_at: true,
+        watch_availability: true,
+      },
+    });
+    return alert;
   }
 }
