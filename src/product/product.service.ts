@@ -14,6 +14,7 @@ export class ProductService {
       where: {
         id: product_id,
       },
+
       select: {
         id: true,
         name: true,
@@ -22,6 +23,7 @@ export class ProductService {
         brand_id: true,
         created_at: true,
         updated_at: true,
+
         productImages: {
           select: {
             id: true,
@@ -34,9 +36,26 @@ export class ProductService {
             id: 'asc',
           },
         },
+
         productSpecifications: {
           orderBy: {
             id: 'asc',
+          },
+
+          select: {
+            id: true,
+            value: true,
+            type: true,
+            specification_id: true,
+            product_id: true,
+
+            specification: {
+              select: {
+                id: true,
+                title: true,
+                filterable: true,
+              },
+            },
           },
         },
       },
@@ -238,6 +257,7 @@ export class ProductService {
         shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
 
         shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
+        is_available: mainOffer?.is_available,
       };
     });
     return {
@@ -273,17 +293,29 @@ export class ProductService {
       throw new BadRequestException('Offer is inactive');
     }
 
-    await this.prisma.offerClick.create({
-      data: {
-        offer_id: offer.id,
-        product_id: offer.product_id,
-        shop_id: offer.shop_id,
-        user_id: data.user_id ?? null,
-        ip: data.ip ?? null,
-        user_agent: data.user_agent ?? null,
-        referer: data.referer ?? null,
-      },
-    });
+    await this.prisma.$transaction([
+      this.prisma.offerClick.create({
+        data: {
+          offer_id: offer.id,
+          product_id: offer.product_id,
+          shop_id: offer.shop_id,
+          user_id: data.user_id ?? null,
+          ip: data.ip ?? null,
+          user_agent: data.user_agent ?? null,
+          referer: data.referer ?? null,
+        },
+      }),
+      this.prisma.offer.update({
+        where: {
+          id: offer.id,
+        },
+        data: {
+          view_count: {
+            increment: 1,
+          },
+        },
+      }),
+    ]);
 
     return offer.more_info_url;
   }
@@ -293,47 +325,43 @@ export class ProductService {
       where: {
         product_id,
         is_active: true,
+        is_deleted: false,
       },
       select: {
         id: true,
         price: true,
         description: true,
         warranty_duration: true,
+        more_info_url: true,
+        is_available: true,
         warranty: {
-          select: {
-            title: true,
-          },
+          select: { title: true },
         },
+        badges: true,
         shop: {
           select: {
             id: true,
             shop_name: true,
             address: true,
+            latitude: true,
+            longitude: true,
             type: true,
             city: {
-              select: {
-                id: true,
-                name: true,
-              },
+              select: { id: true, name: true },
             },
             shopImages: {
-              select: {
-                id: true,
-                url: true,
-              },
+              select: { id: true, url: true },
             },
             shopContacts: {
-              select: {
-                id: true,
-                type: true,
-                platform: true,
-                value: true,
-              },
+              select: { id: true, type: true, platform: true, value: true },
             },
           },
         },
       },
       orderBy: [
+        {
+          is_available: 'desc',
+        },
         {
           price: 'asc',
         },
@@ -380,6 +408,8 @@ export class ProductService {
             id: true,
             shop_name: true,
             address: true,
+            latitude: true,
+            longitude: true,
             type: true,
             city: {
               select: { id: true, name: true },
@@ -393,9 +423,13 @@ export class ProductService {
           },
         },
       },
-      orderBy: [{ price: 'asc' }, { updated_at: 'desc' }],
+      orderBy: {
+        created_at: 'desc',
+      },
     });
 
-    return offers;
+    return {
+      sellers: JSON.parse(JSON.stringify(offers, (key, value) => (typeof value === 'bigint' ? Number(value) : value))),
+    };
   }
 }
