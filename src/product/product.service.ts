@@ -282,6 +282,7 @@ export class ProductService {
         product_id: true,
         shop_id: true,
         is_active: true,
+        price: true,
       },
     });
 
@@ -303,6 +304,7 @@ export class ProductService {
           ip: data.ip ?? null,
           user_agent: data.user_agent ?? null,
           referer: data.referer ?? null,
+          price: Number(offer.price),
         },
       }),
       this.prisma.offer.update({

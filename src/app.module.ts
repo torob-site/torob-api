@@ -13,6 +13,7 @@ import { ProductModule } from './product/product.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { PanelModule } from './panel/panel.module';
 import { AlertModule } from './alert/alert.module';
+import { PurchaseModule } from './purchase/purchase.module';
 import { ConfigModule } from '@nestjs/config';
 
 @Module({
@@ -33,6 +34,7 @@ import { ConfigModule } from '@nestjs/config';
     ProductModule,
     PrismaModule,
     AlertModule,
+    PurchaseModule,
     PanelModule,
   ],
 })
