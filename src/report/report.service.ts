@@ -2,6 +2,11 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateReportDto } from './report.dto';
 import { ShopType } from '@prisma/client';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/fa';
+
+dayjs.extend(relativeTime);
 
 @Injectable()
 export class ReportService {
@@ -29,19 +34,71 @@ export class ReportService {
   }
 
   async all(user_id: number) {
-    return this.prisma.report.findMany({
+    const reports = await this.prisma.report.findMany({
       where: {
         user_id,
       },
-      include: {
-        shop: true,
-        product: true,
-        reportReason: true,
+      select: {
+        created_at: true,
+        status: true,
+        price_at_report_time: true,
+        shop: {
+          select: {
+            id: true,
+            shop_name: true,
+          },
+        },
+        product: {
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            productImages: {
+              where: {
+                is_main: true,
+              },
+              select: {
+                url: true,
+              },
+            },
+          },
+        },
       },
       orderBy: {
         created_at: 'desc',
       },
     });
+    const reportsMap = reports.map((x) => {
+      return {
+        id: x.product.id,
+        slug: x.product.slug,
+        product_name: x.product.name,
+        product_shop_name: x.shop.shop_name,
+        status: x.status,
+        price_at_report_time: x.price_at_report_time,
+        main_image: x.product.productImages.map((x) => x.url),
+        created_at: dayjs(x.created_at).locale('fa').fromNow(),
+      };
+    });
+
+    const reviewedReports = reports.filter((x) => x.status !== 'PENDING');
+    const positiveCount = reviewedReports.filter((x) => x.status === 'RESOLVED' || x.status === 'REVIEWED').length;
+    const reviewedTotal = reviewedReports.length;
+
+    let user_status: string = 'بد';
+    if (reviewedTotal > 0) {
+      const accuracy = positiveCount / reviewedTotal;
+      if (accuracy >= 0.8) {
+        user_status = 'عالی';
+      } else if (accuracy >= 0.5) {
+        user_status = 'خوب';
+      }
+    }
+
+    return {
+      results: reportsMap,
+      user_status,
+    };
   }
 
   async options(shop_type: ShopType) {
