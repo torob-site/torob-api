@@ -12,6 +12,11 @@ export class ProductController {
   @Get('special-offers')
   async specialOffers() {}
 
+  @Get('price-list/:category_id')
+  async priceList(@Param('category_id', ParseIntPipe) category_id: number, @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number, @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number) {
+    return await this.productService.priceList(category_id, page, limit);
+  }
+
   @Get('/redirect')
   @UseGuards(OptionalJwtGuard)
   async redirect(@UserPipe() user: User, @Query('offer_id', ParseIntPipe) offer_id: number, @Req() req: Request, @Res() res: Response) {

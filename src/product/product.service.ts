@@ -9,6 +9,28 @@ dayjs.extend(jalaliday);
 export class ProductService {
   constructor(private prisma: PrismaService) {}
 
+  async getCategoryBreadcrumb(categoryId: number) {
+    const rows = await this.prisma.$queryRaw<{ id: number; title: string; url: string }[]>`
+    WITH RECURSIVE tree AS (
+      SELECT id, title, url, parent_id, 0 as level
+      FROM \`categories\`
+      WHERE id = ${categoryId}
+      UNION ALL
+      SELECT c.id, c.title, c.url, c.parent_id, t.level + 1
+      FROM \`categories\` c
+      JOIN tree t ON t.parent_id = c.id
+    )
+    SELECT id, title, url FROM tree ORDER BY level DESC;
+  `;
+    return {
+      categories: rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        slug: r.url,
+      })),
+    };
+  }
+
   async get(product_id: number) {
     const product = await this.prisma.product.findUnique({
       where: {
@@ -23,6 +45,7 @@ export class ProductService {
         brand_id: true,
         created_at: true,
         updated_at: true,
+        category_id: true,
 
         productImages: {
           select: {
@@ -64,8 +87,11 @@ export class ProductService {
     if (!product) {
       throw new NotFoundException('Product not found');
     }
-
-    return product;
+    const breadcrumb = await this.getCategoryBreadcrumb(product.category_id);
+    return {
+      ...product,
+      breadcrumb: breadcrumb.categories,
+    };
   }
 
   async offerHistory(product_id: number, page: number, limit: number) {
@@ -323,7 +349,7 @@ export class ProductService {
   }
 
   async offers(product_id: number) {
-    return await this.prisma.offer.findMany({
+    const offers = await this.prisma.offer.findMany({
       where: {
         product_id,
         is_active: true,
@@ -372,6 +398,8 @@ export class ProductService {
         },
       ],
     });
+
+    return JSON.parse(JSON.stringify(offers, (key, value) => (typeof value === 'bigint' ? Number(value) : value)));
   }
 
   async mapOffers(product_id: number, user_id?: number) {
@@ -432,6 +460,280 @@ export class ProductService {
 
     return {
       sellers: JSON.parse(JSON.stringify(offers, (key, value) => (typeof value === 'bigint' ? Number(value) : value))),
+    };
+  }
+
+  async priceList(category_id: number, page = 1, limit = 10) {
+    const category = await this.prisma.category.findUnique({
+      where: {
+        id: category_id,
+      },
+      select: {
+        id: true,
+        title: true,
+        url: true,
+        parent_id: true,
+      },
+    });
+
+    if (!category) {
+      throw new NotFoundException('category not found');
+    }
+
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.min(50, Math.max(1, Number(limit) || 10));
+
+    /* ---------------------------------------------------------------------- */
+    /* Siblings                                                               */
+    /* ---------------------------------------------------------------------- */
+
+    const siblings = category.parent_id
+      ? await this.prisma.category.findMany({
+          where: {
+            parent_id: category.parent_id,
+          },
+          select: {
+            id: true,
+            title: true,
+            url: true,
+          },
+          orderBy: {
+            title: 'asc',
+          },
+        })
+      : [];
+
+    /* ---------------------------------------------------------------------- */
+    /* Children                                                               */
+    /* ---------------------------------------------------------------------- */
+
+    const children = await this.prisma.category.findMany({
+      where: {
+        parent_id: category_id,
+      },
+      select: {
+        id: true,
+        title: true,
+        url: true,
+      },
+      orderBy: {
+        title: 'asc',
+      },
+    });
+
+    /* ====================================================================== */
+    /* HAS CHILDREN                                                           */
+    /* ====================================================================== */
+
+    if (children.length > 0) {
+      const categories = await Promise.all(
+        children.map(async (child) => {
+          const [products, total] = await Promise.all([
+            this.prisma.product.findMany({
+              where: {
+                category_id: child.id,
+              },
+
+              take: 10,
+
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+
+                offers: {
+                  where: {
+                    is_active: true,
+                  },
+
+                  orderBy: {
+                    price: 'asc',
+                  },
+
+                  take: 1,
+
+                  select: {
+                    price: true,
+
+                    shop: {
+                      select: {
+                        id: true,
+                        shop_name: true,
+                      },
+                    },
+                  },
+                },
+
+                _count: {
+                  select: {
+                    offers: {
+                      where: {
+                        is_active: true,
+                      },
+                    },
+                  },
+                },
+              },
+
+              orderBy: {
+                name: 'asc',
+              },
+            }),
+
+            this.prisma.product.count({
+              where: {
+                category_id: child.id,
+              },
+            }),
+          ]);
+
+          return {
+            id: child.id,
+            title: child.title,
+            url: child.url,
+
+            total_products: total,
+            has_more: total > 10,
+
+            products: products.map((product) => {
+              const lowestOffer = product.offers[0] ?? null;
+
+              return {
+                id: product.id,
+                name: product.name,
+                slug: product.slug,
+
+                lowest_price: lowestOffer ? Number(lowestOffer.price) : null,
+
+                seller_count: product._count.offers,
+
+                seller_name: product._count.offers === 1 ? (lowestOffer?.shop.shop_name ?? null) : null,
+              };
+            }),
+          };
+        }),
+      );
+
+      return {
+        type: 'has_children' as const,
+
+        title: `لیست قیمت ${category.title}`,
+
+        category: {
+          id: category.id,
+          title: category.title,
+          url: category.url,
+        },
+
+        siblings,
+
+        categories,
+      };
+    }
+
+    /* ====================================================================== */
+    /* LEAF                                                                   */
+    /* ====================================================================== */
+
+    const where = {
+      category_id,
+    };
+
+    const [products, total] = await Promise.all([
+      this.prisma.product.findMany({
+        where,
+
+        skip: (safePage - 1) * safeLimit,
+        take: safeLimit,
+
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+
+          offers: {
+            where: {
+              is_active: true,
+            },
+
+            orderBy: {
+              price: 'asc',
+            },
+
+            take: 1,
+
+            select: {
+              price: true,
+
+              shop: {
+                select: {
+                  id: true,
+                  shop_name: true,
+                },
+              },
+            },
+          },
+
+          _count: {
+            select: {
+              offers: {
+                where: {
+                  is_active: true,
+                },
+              },
+            },
+          },
+        },
+
+        orderBy: {
+          name: 'asc',
+        },
+      }),
+
+      this.prisma.product.count({
+        where,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(total / safeLimit);
+
+    const formattedProducts = products.map((product) => {
+      const lowestOffer = product.offers[0] ?? null;
+
+      return {
+        id: product.id,
+        name: product.name,
+        slug: product.slug,
+
+        lowest_price: lowestOffer ? Number(lowestOffer.price) : null,
+
+        seller_count: product._count.offers,
+
+        seller_name: product._count.offers === 1 ? (lowestOffer?.shop.shop_name ?? null) : null,
+      };
+    });
+
+    return {
+      type: 'leaf' as const,
+
+      title: `لیست قیمت ${category.title}`,
+
+      category: {
+        id: category.id,
+        title: category.title,
+        url: category.url,
+      },
+
+      siblings,
+
+      products: formattedProducts,
+
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages,
+      },
     };
   }
 }
