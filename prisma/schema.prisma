@@ -122,6 +122,7 @@ model Shop {
   status             ShopStatus
   shop_name          String     @unique
   has_license        Boolean
+  is_guaranteed      Boolean    @default(false)
   business_type_id   Int?
   businessType       Business?  @relation(fields: [business_type_id], references: [id])
   domain             String?    @default("")
@@ -594,6 +595,7 @@ model Offer {
   more_info_url String    @default("")
   is_active     Boolean   @default(true)
   is_available  Boolean   @default(true)
+  is_adv        Boolean   @default(false)
   is_deleted    Boolean   @default(false)
   view_count    Int       @default(0)
   warranty_id   Int?
