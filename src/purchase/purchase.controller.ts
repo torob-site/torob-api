@@ -19,11 +19,12 @@ export class PurchaseController {
     return await this.purchaseService.all(user.id, page, limit, search);
   }
 
-  @Get(':id')
+  @Get('detail')
   async detail(
     @UserPipe() user: User,
-    @Param('id', ParseIntPipe) id: number,
+    @Query('product_id', ParseIntPipe) product_id: number,
+    @Query('shop_id', ParseIntPipe) shop_id: number,
   ) {
-    return await this.purchaseService.detail(user.id, id);
+    return await this.purchaseService.detail(user.id, product_id, shop_id);
   }
 }

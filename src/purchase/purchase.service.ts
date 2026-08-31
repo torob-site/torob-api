@@ -77,6 +77,8 @@ export class PurchaseService {
 
       return {
         id: click.id,
+        product_id: click.product.id,
+        shop_id: click.shop.id,
         product_name: click.product.name,
         product_slug: click.product.slug,
         product_image: click.product.productImages[0]?.url ?? '',
@@ -98,10 +100,11 @@ export class PurchaseService {
     };
   }
 
-  async detail(user_id: number, id: number) {
+  async detail(user_id: number, product_id: number, shop_id: number) {
     const click = await this.prisma.offerClick.findFirst({
       where: {
-        id,
+        product_id,
+        shop_id,
         user_id,
       },
       select: {
