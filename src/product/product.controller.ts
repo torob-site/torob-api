@@ -52,8 +52,13 @@ export class ProductController {
   }
 
   @Get(':product_id/offers')
-  async productOffers(@Param('product_id', ParseIntPipe) product_id: number) {
-    return await this.productService.offers(product_id);
+  @UseGuards(OptionalJwtGuard)
+  async productOffers(
+    @Param('product_id', ParseIntPipe) product_id: number,
+    @UserPipe() user: User,
+    @Query('filter') filter?: string,
+  ) {
+    return await this.productService.offers(product_id, user?.id, filter);
   }
 
   @Get(':product_id/map/offers')

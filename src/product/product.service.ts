@@ -58,6 +58,32 @@ export class ProductService {
           orderBy: {
             id: 'asc',
           },
+          include: {
+            offers: {
+              where: {
+                is_active: true,
+                is_deleted: false,
+              },
+              orderBy: {
+                price: 'asc',
+              },
+              take: 1,
+              select: {
+                price: true,
+                is_available: true,
+              },
+            },
+            _count: {
+              select: {
+                offers: {
+                  where: {
+                    is_active: true,
+                    is_deleted: false,
+                  },
+                },
+              },
+            },
+          },
         },
 
         productSpecifications: {
@@ -88,8 +114,27 @@ export class ProductService {
       throw new NotFoundException('Product not found');
     }
     const breadcrumb = await this.getCategoryBreadcrumb(product.category_id);
+
+    // Serialize BigInt and format variant prices
+    const serialized = JSON.parse(
+      JSON.stringify(product, (key, value) => (typeof value === 'bigint' ? Number(value) : value)),
+    );
+
+    serialized.productVariants = serialized.productVariants.map((v: any) => {
+      const lowestOffer = v.offers?.[0] ?? null;
+      const sellerCount = v._count?.offers ?? 0;
+
+      return {
+        id: v.id,
+        title: v.title,
+        lowest_price: lowestOffer ? lowestOffer.price : null,
+        is_available: lowestOffer ? lowestOffer.is_available : false,
+        seller_count: sellerCount,
+      };
+    });
+
     return {
-      ...product,
+      ...serialized,
       breadcrumb: breadcrumb.categories,
     };
   }
@@ -348,13 +393,47 @@ export class ProductService {
     return offer.more_info_url;
   }
 
-  async offers(product_id: number) {
+  async offers(product_id: number, user_id?: number, filter?: string) {
+    // Get user city if available
+    let userCityId: number | null = null;
+    let userCityName: string | null = null;
+    if (user_id) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: user_id },
+        select: {
+          city_id: true,
+          city: { select: { id: true, name: true } },
+        },
+      });
+      userCityId = user?.city_id ?? null;
+      userCityName = user?.city?.name ?? null;
+    }
+
+    // Build where clause based on filter
+    const where: any = {
+      product_id,
+      is_active: true,
+      is_deleted: false,
+    };
+
+    if (filter === 'city' && userCityId) {
+      where.shop = { city_id: userCityId };
+    }
+
+    if (filter === 'warranty') {
+      where.OR = [
+        { warranty_id: { not: null } },
+        { warranty_duration: { gt: 0 } },
+      ];
+    }
+
+    if (filter === 'guaranteed') {
+      where.shop = { is_guaranteed: true };
+    }
+
+    // Fetch offers
     const offers = await this.prisma.offer.findMany({
-      where: {
-        product_id,
-        is_active: true,
-        is_deleted: false,
-      },
+      where,
       select: {
         id: true,
         price: true,
@@ -362,6 +441,7 @@ export class ProductService {
         warranty_duration: true,
         more_info_url: true,
         is_available: true,
+        product_id: true,
         warranty: {
           select: { title: true },
         },
@@ -374,6 +454,7 @@ export class ProductService {
             latitude: true,
             longitude: true,
             type: true,
+            is_guaranteed: true,
             city: {
               select: { id: true, name: true },
             },
@@ -399,19 +480,91 @@ export class ProductService {
       ],
     });
 
-    return JSON.parse(JSON.stringify(offers, (key, value) => (typeof value === 'bigint' ? Number(value) : value)));
+    const serialized = JSON.parse(
+      JSON.stringify(offers, (key, value) => (typeof value === 'bigint' ? Number(value) : value)),
+    );
+
+    // Calculate filter stats (always from ALL offers, not filtered)
+    const allWhere: any = {
+      product_id,
+      is_active: true,
+      is_deleted: false,
+    };
+
+    const allOffersForStats = await this.prisma.offer.findMany({
+      where: allWhere,
+      select: {
+        price: true,
+        is_available: true,
+        warranty_id: true,
+        warranty_duration: true,
+        shop: {
+          select: {
+            city: { select: { id: true } },
+            is_guaranteed: true,
+          },
+        },
+      },
+    });
+
+    const getCheapestPrice = (list: any[]) => {
+      const available = list.filter((o: any) => o.is_available);
+      if (available.length === 0) return null;
+      return Math.min(...available.map((o: any) => Number(o.price)));
+    };
+
+    const cityOffers = userCityId
+      ? allOffersForStats.filter((o: any) => o.shop?.city?.id === userCityId)
+      : [];
+
+    const warrantyOffers = allOffersForStats.filter(
+      (o: any) => o.warranty_id != null || (o.warranty_duration != null && o.warranty_duration > 0),
+    );
+
+    const guaranteedOffers = allOffersForStats.filter(
+      (o: any) => o.shop?.is_guaranteed === true,
+    );
+
+    const filters: any = {
+      all: {
+        count: allOffersForStats.length,
+        starting_price: getCheapestPrice(allOffersForStats),
+      },
+      city: {
+        count: cityOffers.length,
+        starting_price: getCheapestPrice(cityOffers),
+        city_name: userCityName,
+      },
+      warranty: {
+        count: warrantyOffers.length,
+        starting_price: getCheapestPrice(warrantyOffers),
+      },
+    };
+
+    // Only include guaranteed filter if there are guaranteed offers
+    if (guaranteedOffers.length > 0) {
+      filters.guaranteed = {
+        count: guaranteedOffers.length,
+        starting_price: getCheapestPrice(guaranteedOffers),
+      };
+    }
+
+    return {
+      offers: serialized,
+      filters,
+      user_city_id: userCityId,
+    };
   }
 
   async mapOffers(product_id: number, user_id?: number) {
-    const TEHRAN_CITY_ID = 1;
-
-    let targetCityId = TEHRAN_CITY_ID;
+    let targetCityId: number | undefined;
 
     if (user_id) {
       const user = await this.prisma.user.findUnique({
         where: { id: user_id },
         select: { city_id: true },
       });
+
       if (user?.city_id) {
         targetCityId = user.city_id;
       }
@@ -431,7 +584,9 @@ export class ProductService {
         description: true,
         warranty_duration: true,
         warranty: {
-          select: { title: true },
+          select: {
+            title: true,
+          },
         },
         shop: {
           select: {
@@ -442,13 +597,24 @@ export class ProductService {
             longitude: true,
             type: true,
             city: {
-              select: { id: true, name: true },
+              select: {
+                id: true,
+                name: true,
+              },
             },
             shopImages: {
-              select: { id: true, url: true },
+              select: {
+                id: true,
+                url: true,
+              },
             },
             shopContacts: {
-              select: { id: true, type: true, platform: true, value: true },
+              select: {
+                id: true,
+                type: true,
+                platform: true,
+                value: true,
+              },
             },
           },
         },
@@ -459,7 +625,7 @@ export class ProductService {
     });
 
     return {
-      sellers: JSON.parse(JSON.stringify(offers, (key, value) => (typeof value === 'bigint' ? Number(value) : value))),
+      sellers: JSON.parse(JSON.stringify(offers, (_, value) => (typeof value === 'bigint' ? Number(value) : value))),
     };
   }
 
