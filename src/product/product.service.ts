@@ -551,7 +551,7 @@ export class ProductService {
 
     return {
       offers: serialized,
-      filters,
+      filters: allOffersForStats.length > 0 ? filters : null,
       user_city_id: userCityId,
     };
   }
