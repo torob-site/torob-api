@@ -101,6 +101,99 @@ export class ReportService {
     };
   }
 
+  async recentOfferClicks(user_id: number) {
+    const clicks = await this.prisma.offerClick.findMany({
+      where: {
+        user_id,
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+      take: 50,
+      select: {
+        id: true,
+        created_at: true,
+        offer: {
+          select: {
+            id: true,
+            product_id: true,
+            price: true,
+            is_available: true,
+            is_active: true,
+            warranty: {
+              select: {
+                title: true,
+              },
+            },
+            warranty_duration: true,
+            shop: {
+              select: {
+                id: true,
+                shop_name: true,
+                type: true,
+                city: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        product: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            productImages: {
+              where: {
+                is_main: true,
+              },
+              select: {
+                url: true,
+              },
+              take: 1,
+            },
+          },
+        },
+        shop: {
+          select: {
+            id: true,
+            shop_name: true,
+            shop_logo: true,
+          },
+        },
+      },
+    });
+
+    return clicks.map((click) => ({
+      id: click.id,
+      created_at: click.created_at,
+      offer: {
+        id: click.offer.id,
+        product_id: click.offer.product_id,
+        price: Number(click.offer.price),
+        is_available: click.offer.is_available,
+        is_active: click.offer.is_active,
+        warranty: click.offer.warranty,
+        warranty_duration: click.offer.warranty_duration,
+        shop: click.offer.shop,
+      },
+      product: {
+        id: click.product.id,
+        name: click.product.name,
+        slug: click.product.slug,
+        image: click.product.productImages[0]?.url ?? null,
+      },
+      shop: {
+        id: click.shop.id,
+        shop_name: click.shop.shop_name,
+        shop_logo: click.shop.shop_logo,
+      },
+    }));
+  }
+
   async options(shop_type: ShopType) {
     const reasons = await this.prisma.reportReason.findMany({
       where: { shop_type },

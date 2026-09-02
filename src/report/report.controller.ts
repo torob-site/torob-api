@@ -16,6 +16,11 @@ export class ReportController {
     return await this.reportService.all(user.id);
   }
 
+  @Get('users/me/recent-offer-clicks')
+  async recentOfferClicks(@UserPipe() user: User) {
+    return await this.reportService.recentOfferClicks(user.id);
+  }
+
   @Get('reports/options')
   async options(@Query('shop_type') shop_type: ShopType) {
     return this.reportService.options(shop_type);
