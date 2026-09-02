@@ -1,9 +1,10 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/auth.guard';
-import { GetProductsQueryDto, GetShopStatisticsDto, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto } from './panel.dto';
+import { CreateOfferDto, FindMergeCandidatesDto, GetProductsQueryDto, GetShopStatisticsDto, SuggestCategoryDto, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto } from './panel.dto';
 import { PanelService } from './panel.service';
 import { UserPipe } from 'src/auth/user.decorator';
 import { type User } from '@prisma/client';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @UseGuards(JwtAuthGuard)
 @Controller('panel/shops')
@@ -170,6 +171,19 @@ export class PanelController {
     return await this.panelService.getWarranties(shop_id, user.id);
   }
 
-  // @Get(':shop_id/categories')
-  // async getCategories() { }
+  @Post(':shop_id/find-merge-candidates')
+  async findMergeCandidates(@Param('shop_id', ParseIntPipe) shop_id: number, @Body() dto: FindMergeCandidatesDto, @UserPipe() user: User) {
+    return this.panelService.findMergeCandidates(shop_id, user.id, dto);
+  }
+
+  @Post(':shop_id/create-offer')
+  @UseInterceptors(FileInterceptor('image'))
+  async createOffer(@Param('shop_id', ParseIntPipe) shop_id: number, @UserPipe() user: User, @Body() dto: CreateOfferDto) {
+    return this.panelService.createOffer(shop_id, user.id, dto);
+  }
+
+  @Post(':shop_id/suggest-category')
+  async suggestCategory(@Body() dto: SuggestCategoryDto) {
+    return this.panelService.suggestCategory(dto.title);
+  }
 }

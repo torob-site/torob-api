@@ -376,6 +376,21 @@ export class UpdateContactInfoDto {
   social_medias?: ContactItemDto[];
 }
 
+export class FindMergeCandidatesDto {
+  @ApiProperty()
+  @IsNotEmpty({ message: 'عنوان الزامی است' })
+  @IsString()
+  title: string;
+
+  @ApiPropertyOptional({ description: 'حداکثر تعداد نامزدها', example: 5, default: 5 })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  @Type(() => Number)
+  max_candidates?: number = 5;
+}
+
 export class UpdateLocationDto {
   @ApiProperty()
   @IsNotEmpty()
@@ -480,4 +495,39 @@ export class UpdateOwnerInfoDto {
   @IsMobilePhone('fa-IR', {}, { message: 'شماره همراه نامعتبر است' })
   @Matches(/^09[0-9]{9}$/, { message: 'شماره همراه باید با 09 شروع شود و ۱۱ رقم باشد' })
   mobile_phone: string;
+}
+
+export class SuggestCategoryDto {
+  @ApiProperty({ description: 'عنوان محصول' })
+  @IsNotEmpty({ message: 'عنوان الزامی است' })
+  @IsString()
+  title: string;
+}
+
+export class CreateOfferDto {
+  @ApiProperty({ description: 'عنوان محصول (برای محصول جدید)' })
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @ApiProperty({ description: 'شناسه محصول موجود (برای الحاق به محصول موجود)' })
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  product_id?: number;
+
+  @ApiProperty({ description: 'شناسه دسته‌بندی (برای محصول جدید)' })
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  category_id?: number;
+
+  @ApiProperty({ description: 'قیمت پیشنهادی' })
+  @IsNotEmpty({ message: 'قیمت الزامی است' })
+  price: number;
+
+  @ApiPropertyOptional({ description: 'توضیحات' })
+  @IsOptional()
+  @IsString()
+  description?: string;
 }

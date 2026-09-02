@@ -1,9 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { CreateLocationDto, GetProductsQueryDto, GetShopStatisticsDto, ProductSortField, ReportAction, StatisticsRange, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto, UpdateWorkingHoursDto } from './panel.dto';
-import { BusinessLicenseType, ContactPlatform, ContactType, DayOfWeek, Prisma, ReportStatus, ReportType, VerificationSection } from '@prisma/client';
+import { CreateLocationDto, CreateOfferDto, FindMergeCandidatesDto, SuggestCategoryDto, GetProductsQueryDto, GetShopStatisticsDto, ProductSortField, ReportAction, StatisticsRange, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto, UpdateWorkingHoursDto } from './panel.dto';
+import { BusinessLicenseType, ContactPlatform, ContactType, DayOfWeek, OfferHistoryType, Prisma, ReportStatus, ReportType, VerificationSection } from '@prisma/client';
 import jalaliday from 'jalaliday';
 import dayjs from 'dayjs';
+import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { join } from 'path';
 
 dayjs.extend(jalaliday);
 
@@ -808,7 +810,6 @@ export class PanelService {
 
     const selectedSort = sortLabels[sort] ? sort : ProductSortField.CREATED_AT;
 
-
     const totalPages = total > 0 ? Math.ceil(total / currentLimit) : 0;
 
     return {
@@ -875,6 +876,7 @@ export class PanelService {
     }
 
     const data: any = {};
+    const oldPrice = product.price;
 
     if (description) {
       data.description = description;
@@ -914,6 +916,22 @@ export class PanelService {
       },
       data,
     });
+
+    // ایجاد OfferHistory اگر قیمت تغییر کرده باشد
+    if (price && oldPrice !== null && BigInt(price) !== BigInt(oldPrice)) {
+      const historyType = BigInt(price) > BigInt(oldPrice)
+        ? OfferHistoryType.PRICE_INCREASE
+        : OfferHistoryType.PRICE_DECREASE;
+
+      await this.prisma.offerHistory.create({
+        data: {
+          offer_id: product_id,
+          old_price: Number(oldPrice),
+          new_price: Number(price),
+          type: historyType,
+        },
+      });
+    }
   }
 
   async getShopTransactions(shop_id: number, user_id: number) {
@@ -1855,5 +1873,186 @@ export class PanelService {
       },
     });
     return { status: 200 };
+  }
+
+  async findMergeCandidates(shop_id: number, user_id: number, dto: FindMergeCandidatesDto) {
+    await this.getShopMember(shop_id, user_id);
+
+    const { title, max_candidates = 5 } = dto;
+
+    // Get product IDs that this shop already has offers for (to exclude them)
+    const existingProductIds = (
+      await this.prisma.offer.findMany({
+        where: { shop_id, is_deleted: false },
+        select: { product_id: true },
+      })
+    ).map((o) => o.product_id);
+
+    // Find products where the name contains the title, excluding already-added products
+    const candidates = await this.prisma.product.findMany({
+      where: {
+        name: {
+          contains: title.trim(),
+        },
+        ...(existingProductIds.length > 0 ? { id: { notIn: existingProductIds } } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        offers: {
+          where: {
+            is_deleted: false,
+            is_active: true,
+          },
+          select: {
+            price: true,
+            is_available: true,
+            shop: {
+              select: {
+                shop_name: true,
+              },
+            },
+          },
+          orderBy: { price: 'asc' },
+        },
+        productSpecifications: {
+          where: {
+            type: 'KEY',
+          },
+        },
+        productImages: {
+          select: {
+            id: true,
+            url: true,
+            is_main: true,
+          },
+          take: 1,
+        },
+      },
+      take: max_candidates,
+    });
+
+    return {
+      candidates: candidates.map((product) => {
+        const availableOffers = product.offers.filter((o) => o.is_available);
+        const sellerCount = availableOffers.length;
+        const mainOffer = availableOffers[0] ?? product.offers[0] ?? null;
+
+        return {
+          id: product.id,
+          name: product.name,
+          slug: product.slug,
+          specifications: product.productSpecifications,
+          image: product.productImages[0]?.url ?? null,
+          shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
+          shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
+        };
+      }),
+    };
+  }
+
+  async createOffer(shop_id: number, user_id: number, dto: CreateOfferDto) {
+    await this.getShopMember(shop_id, user_id);
+
+    let product_id = dto.product_id;
+
+    if (!product_id) {
+      if (!dto.title) {
+        throw new BadRequestException('عنوان محصول الزامی است');
+      }
+
+      const baseSlug = dto.title
+        .trim()
+        .toLowerCase()
+        .replace(/[\s_]+/g, '-')
+        .replace(/[^\w\u0600-\u06FF-]/g, '')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+
+      let slug = baseSlug;
+
+      let categoryId = dto.category_id;
+
+      if (!categoryId) {
+        const defaultCategory = await this.prisma.category.findFirst({
+          where: { children: { none: {} } },
+          orderBy: { id: 'asc' },
+        });
+        if (!defaultCategory) {
+          throw new BadRequestException('دسته‌بندی پیش‌فرض یافت نشد');
+        }
+        categoryId = defaultCategory.id;
+      }
+
+      const product = await this.prisma.product.create({
+        data: {
+          name: dto.title.trim(),
+          name_en: dto.title.trim(),
+          slug,
+          category_id: categoryId,
+        },
+      });
+
+      product_id = product.id;
+    }
+
+    const offer = await this.prisma.offer.create({
+      data: {
+        product_id,
+        shop_id,
+        price: BigInt(dto.price),
+        description: dto.description ?? null,
+        is_active: true,
+        is_available: true,
+      },
+    });
+
+    await this.prisma.product.update({
+      where: { id: product_id },
+      data: { offer_count: { increment: 1 } },
+    });
+
+    return { status: 200 };
+  }
+
+  async suggestCategory(title: string) {
+    // Split title into words
+    const words = title.trim().split(/\s+/).filter(Boolean);
+
+    // Find categories whose title contains any of the words
+    const categories = await this.prisma.category.findMany({
+      where: {
+        children: { none: {} },
+        OR: words.map((word) => ({
+          title: { contains: word },
+        })),
+      },
+      select: {
+        id: true,
+        title: true,
+        parent: {
+          select: {
+            id: true,
+            title: true,
+            parent: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
+          },
+        },
+      },
+      take: 10,
+    });
+
+    return {
+      categories: categories.map((cat) => ({
+        id: cat.id,
+        title: cat.title,
+        breadcrumb: [...(cat.parent?.parent ? [{ id: cat.parent.parent.id, title: cat.parent.parent.title }] : []), ...(cat.parent ? [{ id: cat.parent.id, title: cat.parent.title }] : []), { id: cat.id, title: cat.title }],
+      })),
+    };
   }
 }
