@@ -127,16 +127,16 @@ model Shop {
   businessType       Business?  @relation(fields: [business_type_id], references: [id])
   domain             String?    @default("")
   instagram_username String?    @default("")
-  address            String
+  address            String?
   latitude           Decimal?
   longitude          Decimal?
   shop_logo          String
 
-  province_id Int
-  province    Province @relation(fields: [province_id], references: [id])
+  province_id Int?
+  province    Province? @relation(fields: [province_id], references: [id])
 
-  city_id Int
-  city    City @relation(fields: [city_id], references: [id])
+  city_id Int?
+  city    City? @relation(fields: [city_id], references: [id])
 
   owner_id Int
   owner    ShopOwner @relation(fields: [owner_id], references: [id])
@@ -590,16 +590,17 @@ model Offer {
   shop    Shop @relation(fields: [shop_id], references: [id])
 
   price         BigInt
+  status        OfferStatus @default(CONFIRMED)
   description   String?
-  stock_status  String?   @default("")
-  more_info_url String    @default("")
-  is_active     Boolean   @default(true)
-  is_available  Boolean   @default(true)
-  is_adv        Boolean   @default(false)
-  is_deleted    Boolean   @default(false)
-  view_count    Int       @default(0)
+  stock_status  String?     @default("")
+  more_info_url String      @default("")
+  is_active     Boolean     @default(true)
+  is_available  Boolean     @default(true)
+  is_adv        Boolean     @default(false)
+  is_deleted    Boolean     @default(false)
+  view_count    Int         @default(0)
   warranty_id   Int?
-  warranty      Warranty? @relation(fields: [warranty_id], references: [id])
+  warranty      Warranty?   @relation(fields: [warranty_id], references: [id])
 
   warranty_duration Int?
 
@@ -614,6 +615,12 @@ model Offer {
   @@unique([product_id, variant_id, shop_id])
   @@index([product_id])
   @@map("offers")
+}
+
+enum OfferStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
 }
 
 model OfferImage {
