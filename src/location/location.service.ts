@@ -13,7 +13,7 @@ export class LocationService {
     });
   }
 
-  async cities(province_id: number) {
+  async getProvinceCities(province_id: number) {
     return await this.prisma.city.findMany({
       where: {
         province_id,
@@ -22,6 +22,10 @@ export class LocationService {
         name: 'asc',
       },
     });
+  }
+
+  async getCities() {
+    return await this.prisma.city.findMany({ orderBy: { name: 'asc' } });
   }
 
   async popular() {

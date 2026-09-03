@@ -11,12 +11,17 @@ export class LocationController {
   }
 
   @Get('/provinces/:province_id/cities')
-  async cities(@Param('province_id', ParseIntPipe) province_id: number) {
-    return await this.locationService.cities(province_id);
+  async getProvinceCities(@Param('province_id', ParseIntPipe) province_id: number) {
+    return await this.locationService.getProvinceCities(province_id);
   }
 
   @Get('/cities/popular')
   async mostVisited() {
     return await this.locationService.popular();
+  }
+
+  @Get('/cities')
+  async getCities() {
+    return await this.locationService.getCities();
   }
 }
