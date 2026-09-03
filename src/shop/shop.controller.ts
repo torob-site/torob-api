@@ -1,6 +1,9 @@
-import { Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, DefaultValuePipe, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { ShopService } from './shop.service';
-import { GetShopProductsDto } from './shop.dto';
+import { CreateShopDto, GetShopProductsDto } from './shop.dto';
+import { JwtAuthGuard } from 'src/auth/auth.guard';
+import { UserPipe } from 'src/auth/user.decorator';
+import { type User } from '@prisma/client';
 
 @Controller('shops')
 export class ShopController {
@@ -9,6 +12,11 @@ export class ShopController {
   @Get()
   async all(@Query('q') q: string, @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number, @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number) {
     return await this.shopService.all(q, page, limit);
+  }
+
+  @Get('business-types')
+  async businessTypes() {
+    return await this.shopService.businessTypes();
   }
 
   @Get(':shop_id')
@@ -21,6 +29,9 @@ export class ShopController {
     return await this.shopService.shopProducts(shop_id, data);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Post()
-  async create() {}
+  async create(@Body() dto: CreateShopDto, @UserPipe() user: User) {
+    return await this.shopService.create(user.id, dto);
+  }
 }

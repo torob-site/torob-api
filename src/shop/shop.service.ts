@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { GetShopProductsDto, shopProductsSortEnum } from './shop.dto';
+import { CreateShopDto, GetShopProductsDto, shopProductsSortEnum } from './shop.dto';
 import { Prisma } from '@prisma/client';
 
 @Injectable()
@@ -307,5 +307,224 @@ export class ShopService {
       throw new NotFoundException('shop not found');
     }
     return shop;
+  }
+
+  async create(user_id: number, dto: CreateShopDto) {
+    // =====================================================
+    // Validate shop name
+    // =====================================================
+
+    const shopName = dto.shop_name?.trim();
+
+    if (!shopName) {
+      throw new BadRequestException('نام فروشگاه الزامی است');
+    }
+
+    // =====================================================
+    // Validate OFFLINE_SHOP
+    // =====================================================
+
+    if (dto.type === 'OFFLINE_SHOP') {
+      // ---------------------------------------------------
+      // City
+      // ---------------------------------------------------
+
+      if (dto.city_id === undefined || dto.city_id === null) {
+        throw new BadRequestException('شهر برای فروشگاه حضوری الزامی است');
+      }
+
+      // ---------------------------------------------------
+      // Business type
+      // ---------------------------------------------------
+
+      if (!dto.business_type?.trim()) {
+        throw new BadRequestException('حوزه فعالیت برای فروشگاه حضوری الزامی است');
+      }
+
+      // ---------------------------------------------------
+      // Has license
+      // ---------------------------------------------------
+      // توجه:
+      // false مقدار معتبر است.
+      // پس نباید از !dto.has_license استفاده کنیم.
+      // ---------------------------------------------------
+
+      if (dto.has_license === undefined || dto.has_license === null) {
+        throw new BadRequestException('مشخص کردن وضعیت جواز کسب برای فروشگاه حضوری الزامی است');
+      }
+    }
+
+    // =====================================================
+    // Validate ONLINE_SHOP
+    // =====================================================
+
+    if (dto.type === 'ONLINE_SHOP') {
+      if (!dto.domain?.trim()) {
+        throw new BadRequestException('دامنه برای فروشگاه آنلاین الزامی است');
+      }
+    }
+
+    // =====================================================
+    // Check duplicate shop name
+    // =====================================================
+
+    const existingShop = await this.prisma.shop.findUnique({
+      where: {
+        shop_name: shopName,
+      },
+    });
+
+    if (existingShop) {
+      throw new BadRequestException('نام فروشگاه قبلاً استفاده شده است');
+    }
+
+    // =====================================================
+    // Find city
+    // =====================================================
+
+    if (dto.type === 'OFFLINE_SHOP') {
+      const city = await this.prisma.city.findUnique({
+        where: {
+          id: dto.city_id!,
+        },
+      });
+
+      if (!city) {
+        throw new BadRequestException('شهر انتخاب‌شده معتبر نیست');
+      }
+    }
+
+    // =====================================================
+    // Find business type
+    // =====================================================
+
+    let business_type_id: number | null = null;
+
+    if (dto.type === 'OFFLINE_SHOP') {
+      const business = await this.prisma.business.findUnique({
+        where: {
+          value: dto.business_type!.trim(),
+        },
+      });
+
+      if (!business) {
+        throw new BadRequestException('حوزه فعالیت انتخاب‌شده معتبر نیست');
+      }
+
+      business_type_id = business.id;
+    }
+
+    // =====================================================
+    // Create owner
+    // =====================================================
+
+    const owner = await this.prisma.shopOwner.create({
+      data: {
+        first_name: '',
+        last_name: '',
+        national_code: `pending_${Date.now()}_${user_id}`,
+        mobile_phone: '',
+        birth_date: new Date('2000-01-01'),
+      },
+    });
+
+    // =====================================================
+    // Create shop
+    // =====================================================
+
+    const shop = await this.prisma.shop.create({
+      data: {
+        // ---------------------------------------------------
+        // Basic
+        // ---------------------------------------------------
+
+        type: dto.type,
+        status: 'PENDING',
+        shop_name: shopName,
+
+        // ---------------------------------------------------
+        // License
+        // ---------------------------------------------------
+
+        has_license: dto.type === 'OFFLINE_SHOP' ? dto.has_license! : false,
+
+        // ---------------------------------------------------
+        // Location
+        // ---------------------------------------------------
+
+        city_id: dto.type === 'OFFLINE_SHOP' ? dto.city_id! : null,
+
+        // فعلاً همان مقدار قبلی
+        province_id: dto.type === 'OFFLINE_SHOP' ? 1 : null,
+
+        // ---------------------------------------------------
+        // Other
+        // ---------------------------------------------------
+
+        address: '',
+        shop_logo: '',
+        owner_id: owner.id,
+
+        // ---------------------------------------------------
+        // Domain
+        // ---------------------------------------------------
+
+        domain: dto.type === 'ONLINE_SHOP' ? dto.domain!.trim() : '',
+
+        // ---------------------------------------------------
+        // Business type
+        // ---------------------------------------------------
+
+        business_type_id,
+      },
+    });
+
+    // =====================================================
+    // Create ShopMember
+    // =====================================================
+
+    await this.prisma.shopMember.create({
+      data: {
+        shop_id: shop.id,
+        user_id,
+        is_owner: true,
+        is_admin: true,
+      },
+    });
+
+    // =====================================================
+    // Create verification records
+    // =====================================================
+
+    const sections = ['LOCATION', 'OWNER_INFO', 'PHONE', 'CONTACT_INFO', 'IMAGES', 'CATEGORY', 'NAME', 'DAILY_WORKING_HOURS', 'BUSINESS_TYPE', 'INSTAGRAM_USERNAME'] as const;
+
+    await this.prisma.shopVerification.createMany({
+      data: sections.map((section) => ({
+        shop_id: shop.id,
+        section,
+        status: 'PENDING_FILLING',
+      })),
+    });
+
+    // =====================================================
+    // Response
+    // =====================================================
+
+    return {
+      id: shop.id,
+      shop_name: shop.shop_name,
+      type: shop.type,
+      status: shop.status,
+    };
+  }
+
+  async businessTypes() {
+    return await this.prisma.business.findMany({
+      select: {
+        value: true,
+        label: true,
+      },
+      orderBy: { id: 'asc' },
+    });
   }
 }
