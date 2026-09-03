@@ -16,10 +16,7 @@ export class PurchaseService {
     const where: any = { user_id };
 
     if (search && search.trim()) {
-      where.OR = [
-        { product: { name: { contains: search.trim() } } },
-        { shop: { shop_name: { contains: search.trim() } } },
-      ];
+      where.OR = [{ product: { name: { contains: search.trim() } } }, { shop: { shop_name: { contains: search.trim() } } }];
     }
 
     const [clicks, total] = await this.prisma.$transaction([
@@ -83,7 +80,7 @@ export class PurchaseService {
         product_slug: click.product.slug,
         product_image: click.product.productImages[0]?.url ?? '',
         shop_name: click.shop.shop_name,
-        city_name: click.shop.city.name,
+        city_name: click.shop.city?.name,
         price: click.price ?? 0,
         created_at: jalaliDate.format('dddd - D MMMM HH:mm'),
       };
@@ -185,8 +182,8 @@ export class PurchaseService {
       shop_logo: click.shop.shop_logo,
       shop_domain: click.shop.domain,
       shop_address: click.shop.address,
-      province_name: click.shop.province.name,
-      city_name: click.shop.city.name,
+      province_name: click.shop.province?.name,
+      city_name: click.shop.city?.name,
       shop_contacts: click.shop.shopContacts,
       shop_working_hours: click.shop.shopWorkingHours,
       price: click.price ?? 0,
