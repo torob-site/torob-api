@@ -20,6 +20,13 @@ export class UpdateBusinessTypeDto {
   business_type: string;
 }
 
+export class UpdateBusinessBackgroundDto {
+  @ApiProperty({ type: [Number] })
+  @IsArray()
+  @IsInt({ each: true })
+  category_ids: number[];
+}
+
 export class UpdateShopInstagramUserNameDto {
   @ApiProperty()
   @IsString()

@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { CreateLocationDto, CreateOfferDto, FindMergeCandidatesDto, SuggestCategoryDto, GetProductsQueryDto, GetShopStatisticsDto, ProductSortField, ReportAction, StatisticsRange, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto, UpdateWorkingHoursDto } from './panel.dto';
+import { CreateLocationDto, CreateOfferDto, FindMergeCandidatesDto, SuggestCategoryDto, GetProductsQueryDto, GetShopStatisticsDto, ProductSortField, ReportAction, StatisticsRange, UpdateBusinessBackgroundDto, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto, UpdateWorkingHoursDto } from './panel.dto';
 import { BusinessLicenseType, ContactPlatform, ContactType, DayOfWeek, OfferHistoryType, Prisma, ReportStatus, ReportType, VerificationSection } from '@prisma/client';
 import jalaliday from 'jalaliday';
 import dayjs from 'dayjs';
@@ -212,6 +212,65 @@ export class PanelService {
         business_type_id: business.id,
       },
     });
+
+    return {
+      status: 200,
+    };
+  }
+
+  async getBusinessBackground(shop_id: number, user_id: number) {
+    const shop = await this.getShopMember(shop_id, user_id, {
+      shopCategories: {
+        select: {
+          category_id: true,
+        },
+      },
+    });
+
+    const categoryIds = shop.shopCategories.map((c) => c.category_id);
+
+    const categories = await this.prisma.category.findMany({
+      select: {
+        id: true,
+        title: true,
+        url: true,
+      },
+      orderBy: { id: 'asc' },
+    });
+
+    return {
+      categories,
+      selected_category_ids: categoryIds,
+    };
+  }
+
+  async updateBusinessBackground(shop_id: number, { category_ids }: UpdateBusinessBackgroundDto, user_id: number) {
+    const shop = await this.getShopMember(shop_id, user_id, {
+      id: true,
+    });
+
+    const categories = await this.prisma.category.findMany({
+      where: {
+        id: { in: category_ids },
+      },
+      select: { id: true },
+    });
+
+    if (categories.length !== category_ids.length) {
+      throw new NotFoundException('یک یا چند دسته‌بندی یافت نشد');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.shopCategory.deleteMany({
+        where: { shop_id: shop.id },
+      }),
+      this.prisma.shopCategory.createMany({
+        data: category_ids.map((category_id) => ({
+          shop_id: shop.id,
+          category_id,
+        })),
+      }),
+    ]);
 
     return {
       status: 200,

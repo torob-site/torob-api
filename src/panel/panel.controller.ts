@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/auth.guard';
-import { CreateOfferDto, FindMergeCandidatesDto, GetProductsQueryDto, GetShopStatisticsDto, SuggestCategoryDto, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto } from './panel.dto';
+import { CreateOfferDto, FindMergeCandidatesDto, GetProductsQueryDto, GetShopStatisticsDto, SuggestCategoryDto, UpdateBusinessBackgroundDto, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto } from './panel.dto';
 import { PanelService } from './panel.service';
 import { UserPipe } from 'src/auth/user.decorator';
 import { type User } from '@prisma/client';
@@ -49,6 +49,16 @@ export class PanelController {
   @Patch(':shop_id/business-type')
   async updateBusinessType(@Param('shop_id', ParseIntPipe) shop_id: number, @Body() data: UpdateBusinessTypeDto, @UserPipe() user: User) {
     return this.panelService.updateBusinessType(shop_id, data, user.id);
+  }
+
+  @Get(':shop_id/business-background')
+  async getBusinessBackground(@UserPipe() user: User, @Param('shop_id', ParseIntPipe) shop_id: number) {
+    return await this.panelService.getBusinessBackground(shop_id, user.id);
+  }
+
+  @Patch(':shop_id/business-background')
+  async updateBusinessBackground(@Param('shop_id', ParseIntPipe) shop_id: number, @Body() data: UpdateBusinessBackgroundDto, @UserPipe() user: User) {
+    return this.panelService.updateBusinessBackground(shop_id, data, user.id);
   }
 
   @Get(':shop_id/profile')
