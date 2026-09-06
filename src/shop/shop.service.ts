@@ -422,9 +422,9 @@ export class ShopService {
       data: {
         first_name: '',
         last_name: '',
-        national_code: `pending_${Date.now()}_${user_id}`,
+        national_code: '',
         mobile_phone: '',
-        birth_date: new Date('2000-01-01'),
+        birth_date: '',
       },
     });
 
@@ -453,9 +453,6 @@ export class ShopService {
         // ---------------------------------------------------
 
         city_id: dto.type === 'OFFLINE_SHOP' ? dto.city_id! : null,
-
-        // فعلاً همان مقدار قبلی
-        province_id: dto.type === 'OFFLINE_SHOP' ? 1 : null,
 
         // ---------------------------------------------------
         // Other
