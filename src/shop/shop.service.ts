@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateShopDto, GetShopProductsDto, shopProductsSortEnum } from './shop.dto';
 import { Prisma } from '@prisma/client';
+import { toShopProductDisplay } from 'src/common/utils/product-display';
+import { buildPagination } from 'src/common/utils/pagination';
 
 @Injectable()
 export class ShopService {
@@ -40,12 +42,7 @@ export class ShopService {
 
     return {
       data,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: buildPagination(page, limit, total),
     };
   }
 
@@ -202,19 +199,8 @@ export class ShopService {
         ],
       };
     }
-    const products = offers.map((offer) => {
-      const { product, badges, ...offerData } = offer;
-
-      return {
-        ...product,
-        badges: badges ?? [],
-        shop_price: `${Number(offer.price).toLocaleString('fa-IR')} تومان`,
-        shop_text: `در ${shop.shop_name}`,
-        is_available: offer.is_available,
-      };
-    });
     return {
-      data: products,
+      data: offers.map((offer) => toShopProductDisplay(offer, shop.shop_name)),
       filters1: [],
       filters2: [
         {
@@ -267,12 +253,7 @@ export class ShopService {
           ],
         },
       ],
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: buildPagination(page, limit, total),
     };
   }
 
@@ -424,7 +405,7 @@ export class ShopService {
         last_name: '',
         national_code: '',
         mobile_phone: '',
-        birth_date: '',
+        birth_date: null,
       },
     });
 
