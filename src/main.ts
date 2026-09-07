@@ -2,6 +2,17 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ValidationPipe } from '@nestjs/common';
+import { bigIntToNumber } from './common/utils/serialize';
+
+/**
+ * BigInt values (e.g. Offer.price) cannot be serialized by JSON.stringify
+ * and crash every response that contains one ("Do not know how to serialize
+ * a BigInt"). Patching the prototype once here makes every BigInt serialize
+ * as a plain number globally.
+ */
+(BigInt.prototype as any).toJSON = function () {
+  return bigIntToNumber(this);
+};
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);

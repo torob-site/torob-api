@@ -2,10 +2,352 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from 'src/prisma/prisma.service';
 import { SearchDto, SearchSortEnum } from './search.dto';
 import { Prisma } from '@prisma/client';
+import { toProductDisplayInfo, toShopProductDisplay } from 'src/common/utils/product-display';
+import { buildPagination } from 'src/common/utils/pagination';
+
+type FacetProduct = {
+  brand: { id: number; slug: string; name: string; name_en: string } | null;
+  category?: { id: number; title: string; url: string } | null;
+  productSpecifications: { specification: { id: number; title: string }; value: string }[];
+};
 
 @Injectable()
 export class SearchService {
   constructor(private prisma: PrismaService) {}
+
+  // ─── Shared query builders ─────────────────────────────────────────────
+
+  private buildProductWhere(params: { q?: string; category_id?: number; brand_id?: number; specifications?: Record<string, string[]> }): Prisma.ProductWhereInput {
+    const { q, category_id, brand_id, specifications } = params;
+
+    const where: Prisma.ProductWhereInput = {};
+    if (category_id) {
+      where.category_id = category_id;
+    }
+    if (q) {
+      where.OR = [
+        {
+          name: {
+            contains: q,
+          },
+        },
+        {
+          name_en: {
+            contains: q,
+          },
+        },
+      ];
+    }
+    if (brand_id) {
+      where.brand_id = brand_id;
+    }
+    if (specifications && Object.keys(specifications).length > 0) {
+      where.AND = Object.entries(specifications).map(([specification_id, values]) => ({
+        productSpecifications: {
+          some: {
+            specification_id: Number(specification_id),
+            value: {
+              in: values,
+            },
+          },
+        },
+      }));
+    }
+    return where;
+  }
+
+  private buildOfferWhere(params: { is_available?: boolean; price_gt?: number; price_lt?: number; has_pickup?: boolean; condition?: string }): Prisma.OfferWhereInput {
+    const { is_available, price_gt, price_lt, has_pickup, condition } = params;
+
+    const offerWhere: Prisma.OfferWhereInput = {
+      is_active: true,
+    };
+
+    if (is_available) offerWhere.is_available = true;
+
+    if (price_gt || price_lt) {
+      offerWhere.price = {};
+
+      if (price_gt) offerWhere.price.gte = price_gt;
+      if (price_lt) offerWhere.price.lte = price_lt;
+    }
+
+    if (has_pickup) {
+      offerWhere.shop = {
+        type: 'OFFLINE_SHOP',
+      };
+    }
+
+    if (condition === 'new') offerWhere.stock_status = '';
+    if (condition === 'stock') offerWhere.stock_status = 'کارکرده';
+
+    return offerWhere;
+  }
+
+  /** Sort order for product-level searches: product orderBy + included-offers orderBy. */
+  private getSortOrder(sort?: SearchSortEnum): {
+    productOrderBy: Prisma.ProductOrderByWithRelationInput;
+    offerOrderBy: Prisma.OfferOrderByWithRelationInput;
+  } {
+    const productOrderBy: Prisma.ProductOrderByWithRelationInput = {};
+    const offerOrderBy: Prisma.OfferOrderByWithRelationInput = {
+      price: 'asc',
+    };
+
+    switch (sort) {
+      case SearchSortEnum.popularity:
+        productOrderBy.view_count = 'desc';
+        break;
+
+      case SearchSortEnum.price_asc:
+        offerOrderBy.price = 'asc';
+        break;
+
+      case SearchSortEnum.price_desc:
+        offerOrderBy.price = 'desc';
+        break;
+
+      case SearchSortEnum.new:
+        productOrderBy.created_at = 'desc';
+        break;
+
+      case SearchSortEnum.top_seller:
+        productOrderBy.offer_count = 'desc';
+        break;
+    }
+
+    return { productOrderBy, offerOrderBy };
+  }
+
+  /** Sort order for offer-level searches (searchShop). */
+  private getOfferSortOrder(sort?: SearchSortEnum): Prisma.OfferOrderByWithRelationInput {
+    let orderBy: Prisma.OfferOrderByWithRelationInput = {
+      price: 'asc',
+    };
+
+    switch (sort) {
+      case SearchSortEnum.popularity:
+        orderBy = {
+          product: {
+            view_count: 'desc',
+          },
+        };
+        break;
+
+      case SearchSortEnum.price_desc:
+        orderBy = {
+          price: 'desc',
+        };
+        break;
+
+      case SearchSortEnum.new:
+        orderBy = {
+          created_at: 'desc',
+        };
+        break;
+    }
+
+    return orderBy;
+  }
+
+  private getProductInclude(offerWhere: Prisma.OfferWhereInput, offerOrderBy: Prisma.OfferOrderByWithRelationInput) {
+    // Kept as a single literal (not annotated as Prisma.ProductInclude) so Prisma
+    // can infer the exact result payload. `category` is always included; callers
+    // that don't need it strip it via toProductDisplayInfo's omit list.
+    return {
+      brand: true,
+      productImages: true,
+      category: {
+        select: {
+          id: true,
+          title: true,
+          url: true,
+        },
+      },
+      productSpecifications: {
+        where: {
+          type: 'KEY' as const,
+        },
+        include: {
+          specification: {
+            select: {
+              id: true,
+              title: true,
+            },
+          },
+        },
+      },
+      offers: {
+        where: offerWhere,
+        orderBy: offerOrderBy,
+        include: {
+          shop: true,
+          badges: true,
+        },
+      },
+    };
+  }
+
+  private getPriceBounds(priceRange: { _min: { price: unknown }; _max: { price: unknown } }) {
+    return {
+      max_price: priceRange._max.price ? Number(priceRange._max.price) : 0,
+      min_price: priceRange._min.price ? Number(priceRange._min.price) : 0,
+    };
+  }
+
+  // ─── Shared facets & filter definitions ────────────────────────────────
+
+  private buildBrandFacets(products: FacetProduct[]) {
+    const brandMap = new Map<number, { id: number; slug: string; name: string; name_en: string }>();
+
+    for (const product of products) {
+      if (!product.brand) continue;
+
+      if (!brandMap.has(product.brand.id)) {
+        brandMap.set(product.brand.id, {
+          id: product.brand.id,
+          slug: product.brand.slug,
+          name: product.brand.name,
+          name_en: product.brand.name_en,
+        });
+      }
+    }
+
+    return Array.from(brandMap.values());
+  }
+
+  private buildSpecFacets(products: FacetProduct[], specifications?: Record<string, string[]>) {
+    const specMap = new Map<
+      number,
+      {
+        title: string;
+        values: Set<string>;
+      }
+    >();
+
+    for (const product of products) {
+      for (const spec of product.productSpecifications) {
+        const specificationId = spec.specification.id;
+
+        if (!specMap.has(specificationId)) {
+          specMap.set(specificationId, {
+            title: spec.specification.title,
+            values: new Set(),
+          });
+        }
+
+        specMap.get(specificationId)?.values.add(spec.value);
+      }
+    }
+
+    return Array.from(specMap.entries()).map(([id, data]) => ({
+      specification_id: id,
+      title: data.title,
+      slug: String(id),
+      type: 'multiple',
+      badge_text: specifications?.[String(id)]?.join(', ') || null,
+      items: Array.from(data.values).map((value) => ({
+        value,
+      })),
+    }));
+  }
+
+  private getSortFilterItems() {
+    return [
+      {
+        name: 'محبوب‌ترین',
+        value: 'popularity',
+      },
+      {
+        name: 'ارزان‌ترین',
+        value: 'price_asc',
+      },
+      {
+        name: 'گران‌ترین',
+        value: 'price_desc',
+      },
+      {
+        name: 'جدیدترین',
+        value: 'new',
+      },
+      {
+        name: 'بیشترین فروشنده',
+        value: 'top_seller',
+      },
+    ];
+  }
+
+  private getProductFilters2() {
+    return [
+      {
+        title: 'امکان خرید حضوری',
+        slug: 'has_pickup',
+        type: 'toggle-icon',
+        icon: 'MapPin',
+      },
+      {
+        title: 'وضعیت کارکرد',
+        slug: 'condition',
+        type: 'toggle-group',
+        items: [
+          {
+            name: 'نو',
+            value: 'new',
+          },
+          {
+            name: 'کارکرده',
+            value: 'stock',
+          },
+        ],
+      },
+      {
+        title: 'فقط موجودها',
+        slug: 'is_available',
+        type: 'toggle',
+      },
+      {
+        title: 'مرتب‌سازی',
+        slug: 'sort',
+        type: 'dropdown',
+        items: this.getSortFilterItems(),
+      },
+    ];
+  }
+
+  private getShopFilters2() {
+    return [
+      {
+        title: 'فقط موجودها',
+        slug: 'is_available',
+        type: 'toggle',
+      },
+      {
+        title: 'مرتب‌سازی',
+        slug: 'sort',
+        type: 'dropdown',
+        items: this.getSortFilterItems(),
+      },
+    ];
+  }
+
+  private buildFilters1(brands: ReturnType<SearchService['buildBrandFacets']>, specFilters: ReturnType<SearchService['buildSpecFacets']>, brand_id?: number) {
+    const selectedBrand = brands.find((brand) => brand.id === brand_id);
+
+    return [
+      {
+        title: 'انتخاب برند',
+        slug: 'brand',
+        type: 'dropdown',
+        // NOTE: original code read `selectedBrand.name1`, which doesn't exist on Brand,
+        // so badge_text was always null — preserved as-is.
+        badge_text: (selectedBrand as { name1?: string } | undefined)?.name1 ?? null,
+        items: brands,
+      },
+      ...specFilters,
+    ];
+  }
+
+  // ─── Logging ───────────────────────────────────────────────────────────
 
   private async logSearch(user_id: number, query?: string) {
     if (!query?.trim()) return;
@@ -85,55 +427,16 @@ export class SearchService {
     };
   }
 
+  // ─── Endpoints ─────────────────────────────────────────────────────────
+
   async searchShop(shop_id: number, shop_name: string, limit: number, page: number, is_available?: boolean, sort?: SearchSortEnum, price_gt?: number, price_lt?: number, domain?: string | null, shop_logo?: string | null) {
     const where: Prisma.OfferWhereInput = {
+      ...this.buildOfferWhere({ is_available, price_gt, price_lt }),
       shop_id: shop_id,
-      is_active: true,
     };
-    if (is_available) {
-      where.is_available = true;
-    }
-    if (price_gt || price_lt) {
-      where.price = {};
 
-      if (price_gt) {
-        where.price.gte = price_gt;
-      }
+    const orderBy = this.getOfferSortOrder(sort);
 
-      if (price_lt) {
-        where.price.lte = price_lt;
-      }
-    }
-    let orderBy: Prisma.OfferOrderByWithRelationInput = {
-      price: 'asc',
-    };
-    switch (sort) {
-      case SearchSortEnum.popularity:
-        orderBy = {
-          product: {
-            view_count: 'desc',
-          },
-        };
-        break;
-
-      case SearchSortEnum.price_asc:
-        orderBy = {
-          price: 'asc',
-        };
-        break;
-
-      case SearchSortEnum.price_desc:
-        orderBy = {
-          price: 'desc',
-        };
-        break;
-
-      case SearchSortEnum.new:
-        orderBy = {
-          created_at: 'desc',
-        };
-        break;
-    }
     const [offers, total, priceRange] = await this.prisma.$transaction([
       this.prisma.offer.findMany({
         where,
@@ -160,113 +463,29 @@ export class SearchService {
         },
       }),
     ]);
+
+    const shopInfo = {
+      id: shop_id,
+      shop_name,
+      shop_logo,
+      domain,
+    };
+
     if (total === 0) {
       return {
-        shop: {
-          id: shop_id,
-          shop_name,
-          shop_logo,
-          domain,
-        },
+        shop: shopInfo,
         data: [],
-        filters2: [
-          {
-            title: 'فقط موجودها',
-            slug: 'is_available',
-            type: 'toggle',
-          },
-          {
-            title: 'مرتب‌سازی',
-            slug: 'sort',
-            type: 'dropdown',
-            items: [
-              {
-                name: 'محبوب‌ترین',
-                value: 'popularity',
-              },
-              {
-                name: 'ارزان‌ترین',
-                value: 'price_asc',
-              },
-              {
-                name: 'گران‌ترین',
-                value: 'price_desc',
-              },
-              {
-                name: 'جدیدترین',
-                value: 'new',
-              },
-              {
-                name: 'بیشترین فروشنده',
-                value: 'top_seller',
-              },
-            ],
-          },
-        ],
+        filters2: this.getShopFilters2(),
       };
     }
-    const offersWithInfo = offers.map((offer) => {
-      const { product, badges, price, is_available } = offer;
 
-      return {
-        ...product,
-        badges,
-        shop_price: `${Number(price).toLocaleString('fa-IR')} تومان`,
-        shop_text: `در ${shop_name}`,
-        is_available: is_available,
-      };
-    });
     return {
-      shop: {
-        id: shop_id,
-        shop_name,
-        shop_logo,
-        domain,
-      },
-      data: offersWithInfo,
-      max_price: priceRange._max.price ? Number(priceRange._max.price) : 0,
-      min_price: priceRange._min.price ? Number(priceRange._min.price) : 0,
+      shop: shopInfo,
+      data: offers.map((offer) => toShopProductDisplay(offer, shop_name)),
+      ...this.getPriceBounds(priceRange),
       filters1: [],
-      filters2: [
-        {
-          title: 'فقط موجودها',
-          slug: 'is_available',
-          type: 'toggle',
-        },
-        {
-          title: 'مرتب‌سازی',
-          slug: 'sort',
-          type: 'dropdown',
-          items: [
-            {
-              name: 'محبوب‌ترین',
-              value: 'popularity',
-            },
-            {
-              name: 'ارزان‌ترین',
-              value: 'price_asc',
-            },
-            {
-              name: 'گران‌ترین',
-              value: 'price_desc',
-            },
-            {
-              name: 'جدیدترین',
-              value: 'new',
-            },
-            {
-              name: 'بیشترین فروشنده',
-              value: 'top_seller',
-            },
-          ],
-        },
-      ],
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      filters2: this.getShopFilters2(),
+      pagination: buildPagination(page, limit, total),
     };
   }
 
@@ -274,96 +493,14 @@ export class SearchService {
     if (!query) {
       throw new BadRequestException('query is not the found');
     }
-    const where: Prisma.ProductWhereInput = {};
-    where.OR = [
-      {
-        name: {
-          contains: query,
-        },
-      },
-      {
-        name_en: {
-          contains: query,
-        },
-      },
-    ];
-    if (brand_id) {
-      where.brand_id = brand_id;
-    }
-    if (specifications && Object.keys(specifications).length > 0) {
-      where.AND = Object.entries(specifications).map(([specification_id, values]) => ({
-        productSpecifications: {
-          some: {
-            specification_id: Number(specification_id),
-            value: {
-              in: values,
-            },
-          },
-        },
-      }));
-    }
 
-    const offerWhere: Prisma.OfferWhereInput = {
-      is_active: true,
-    };
-
-    if (is_available) offerWhere.is_available = true;
-
-    if (price_gt || price_lt) {
-      offerWhere.price = {};
-
-      if (price_gt) offerWhere.price.gte = price_gt;
-      if (price_lt) offerWhere.price.lte = price_lt;
-    }
-
-    if (has_pickup) {
-      offerWhere.shop = {
-        type: 'OFFLINE_SHOP',
-      };
-    }
-
-    if (condition === 'new') offerWhere.stock_status = '';
-    if (condition === 'stock') offerWhere.stock_status = 'کارکرده';
+    const where = this.buildProductWhere({ q: query, brand_id, specifications });
+    const offerWhere = this.buildOfferWhere({ is_available, price_gt, price_lt, has_pickup, condition });
     where.offers = {
       some: offerWhere,
     };
 
-    let productOrderBy: Prisma.ProductOrderByWithRelationInput = {};
-    let offerOrderBy: Prisma.OfferOrderByWithRelationInput = {
-      price: 'asc',
-    };
-
-    switch (sort) {
-      case SearchSortEnum.popularity:
-        productOrderBy = {
-          view_count: 'desc',
-        };
-        break;
-
-      case SearchSortEnum.price_asc:
-        offerOrderBy = {
-          price: 'asc',
-        };
-        break;
-
-      case SearchSortEnum.price_desc:
-        offerOrderBy = {
-          price: 'desc',
-        };
-        break;
-
-      case SearchSortEnum.new:
-        productOrderBy = {
-          created_at: 'desc',
-        };
-        break;
-
-      case SearchSortEnum.top_seller:
-        productOrderBy = {
-          offer_count: 'desc',
-        };
-        break;
-    }
+    const { productOrderBy, offerOrderBy } = this.getSortOrder(sort);
 
     const [products, total, priceRange] = await this.prisma.$transaction([
       this.prisma.product.findMany({
@@ -371,38 +508,7 @@ export class SearchService {
         orderBy: productOrderBy,
         skip: (page - 1) * limit,
         take: limit,
-        include: {
-          brand: true,
-          productImages: true,
-          category: {
-            select: {
-              id: true,
-              title: true,
-              url: true,
-            },
-          },
-          productSpecifications: {
-            where: {
-              type: 'KEY',
-            },
-            include: {
-              specification: {
-                select: {
-                  id: true,
-                  title: true,
-                },
-              },
-            },
-          },
-          offers: {
-            where: offerWhere,
-            orderBy: offerOrderBy,
-            include: {
-              shop: true,
-              badges: true,
-            },
-          },
-        },
+        include: this.getProductInclude(offerWhere, offerOrderBy),
       }),
       this.prisma.product.count({ where }),
       this.prisma.offer.aggregate({
@@ -418,85 +524,18 @@ export class SearchService {
         },
       }),
     ]);
+
     if (total === 0) {
       return {
         data: [],
-        filters2: [
-          {
-            title: 'امکان خرید حضوری',
-            slug: 'has_pickup',
-            type: 'toggle-icon',
-            icon: 'MapPin',
-          },
-          {
-            title: 'وضعیت کارکرد',
-            slug: 'condition',
-            type: 'toggle-group',
-            items: [
-              {
-                name: 'نو',
-                value: 'new',
-              },
-              {
-                name: 'کارکرده',
-                value: 'stock',
-              },
-            ],
-          },
-          {
-            title: 'فقط موجودها',
-            slug: 'is_available',
-            type: 'toggle',
-          },
-          {
-            title: 'مرتب‌سازی',
-            slug: 'sort',
-            type: 'dropdown',
-            items: [
-              {
-                name: 'محبوب‌ترین',
-                value: 'popularity',
-              },
-              {
-                name: 'ارزان‌ترین',
-                value: 'price_asc',
-              },
-              {
-                name: 'گران‌ترین',
-                value: 'price_desc',
-              },
-              {
-                name: 'جدیدترین',
-                value: 'new',
-              },
-              {
-                name: 'بیشترین فروشنده',
-                value: 'top_seller',
-              },
-            ],
-          },
-        ],
+        filters2: this.getProductFilters2(),
       };
     }
 
-    const brandMap = new Map();
+    const brands = this.buildBrandFacets(products);
+    const specFilters = this.buildSpecFacets(products, specifications);
 
-    for (const product of products) {
-      if (!product.brand) continue;
-
-      if (!brandMap.has(product.brand.id)) {
-        brandMap.set(product.brand.id, {
-          id: product.brand.id,
-          slug: product.brand.slug,
-          name: product.brand.name,
-          name_en: product.brand.name_en,
-        });
-      }
-    }
-
-    const brands = Array.from(brandMap.values());
-
-    const categoryMap = new Map();
+    const categoryMap = new Map<number, { id: number; title: string; url: string }>();
 
     for (const product of products) {
       if (!product.category) continue;
@@ -507,145 +546,18 @@ export class SearchService {
           title: product.category.title,
           url: product.category.url,
         });
-      } else {
-        categoryMap.get(product.category.id);
       }
     }
 
     const suggestedCategories = Array.from(categoryMap.values());
 
-    const selectedBrand = brands.find((brand) => brand.id === brand_id);
-
-    const specMap = new Map<
-      number,
-      {
-        title: string;
-        values: Set<string>;
-      }
-    >();
-
-    for (const product of products) {
-      for (const spec of product.productSpecifications) {
-        const specificationId = spec.specification.id;
-
-        if (!specMap.has(specificationId)) {
-          specMap.set(specificationId, {
-            title: spec.specification.title,
-            values: new Set(),
-          });
-        }
-
-        specMap.get(specificationId)?.values.add(spec.value);
-      }
-    }
-
-    const specFilters = Array.from(specMap.entries()).map(([id, data]) => ({
-      specification_id: id,
-
-      title: data.title,
-
-      slug: String(id),
-
-      type: 'multiple',
-
-      badge_text: specifications?.[String(id)]?.join(', ') || null,
-
-      items: Array.from(data.values).map((value) => ({
-        value,
-      })),
-    }));
-
-    const productsWithDisplayInfo = products.map((product) => {
-      const sellerCount = product.offers.length;
-
-      const mainOffer = sellerCount === 0 ? null : sellerCount === 1 ? product.offers[0] : product.offers.reduce((min, offer) => (Number(offer.price) < Number(min.price) ? offer : min));
-      const { offers, brand, productSpecifications, category, ...rest } = product;
-
-      return {
-        ...rest,
-        badges: mainOffer?.badges ?? [],
-        shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
-        shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
-        is_available: mainOffer?.is_available,
-      };
-    });
-
     return {
-      data: productsWithDisplayInfo,
-      max_price: priceRange._max.price ? Number(priceRange._max.price) : 0,
-      min_price: priceRange._min.price ? Number(priceRange._min.price) : 0,
+      data: products.map((product) => toProductDisplayInfo(product, ['brand', 'productSpecifications', 'category'])),
+      ...this.getPriceBounds(priceRange),
       suggested_categories: suggestedCategories,
-      filters1: [
-        {
-          title: 'انتخاب برند',
-          slug: 'brand',
-          type: 'dropdown',
-          badge_text: selectedBrand ? selectedBrand.name1 : null,
-          items: brands,
-        },
-        ...specFilters,
-      ],
-      filters2: [
-        {
-          title: 'امکان خرید حضوری',
-          slug: 'has_pickup',
-          type: 'toggle-icon',
-          icon: 'MapPin',
-        },
-        {
-          title: 'وضعیت کارکرد',
-          slug: 'condition',
-          type: 'toggle-group',
-          items: [
-            {
-              name: 'نو',
-              value: 'new',
-            },
-            {
-              name: 'کارکرده',
-              value: 'stock',
-            },
-          ],
-        },
-        {
-          title: 'فقط موجودها',
-          slug: 'is_available',
-          type: 'toggle',
-        },
-        {
-          title: 'مرتب‌سازی',
-          slug: 'sort',
-          type: 'dropdown',
-          items: [
-            {
-              name: 'محبوب‌ترین',
-              value: 'popularity',
-            },
-            {
-              name: 'ارزان‌ترین',
-              value: 'price_asc',
-            },
-            {
-              name: 'گران‌ترین',
-              value: 'price_desc',
-            },
-            {
-              name: 'جدیدترین',
-              value: 'new',
-            },
-            {
-              name: 'بیشترین فروشنده',
-              value: 'top_seller',
-            },
-          ],
-        },
-      ],
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      filters1: this.buildFilters1(brands, specFilters, brand_id),
+      filters2: this.getProductFilters2(),
+      pagination: buildPagination(page, limit, total),
     };
   }
 
@@ -671,98 +583,14 @@ export class SearchService {
         },
       },
     });
-    const where: Prisma.ProductWhereInput = {
-      category_id,
-    };
-    if (q) {
-      where.OR = [
-        {
-          name: {
-            contains: q,
-          },
-        },
-        {
-          name_en: {
-            contains: q,
-          },
-        },
-      ];
-    }
-    if (brand_id) {
-      where.brand_id = brand_id;
-    }
-    if (specifications && Object.keys(specifications).length > 0) {
-      where.AND = Object.entries(specifications).map(([specification_id, values]) => ({
-        productSpecifications: {
-          some: {
-            specification_id: Number(specification_id),
-            value: {
-              in: values,
-            },
-          },
-        },
-      }));
-    }
-    const offerWhere: Prisma.OfferWhereInput = {
-      is_active: true,
-    };
 
-    if (is_available) {
-      offerWhere.is_available = true;
-    }
-    if (price_gt || price_lt) {
-      offerWhere.price = {};
-
-      if (price_gt) offerWhere.price.gte = price_gt;
-      if (price_lt) offerWhere.price.lte = price_lt;
-    }
-
-    if (has_pickup) {
-      offerWhere.shop = {
-        type: 'OFFLINE_SHOP',
-      };
-    }
-    if (condition === 'new') offerWhere.stock_status = '';
-    if (condition === 'stock') offerWhere.stock_status = 'کارکرده';
+    const where = this.buildProductWhere({ q, category_id, brand_id, specifications });
+    const offerWhere = this.buildOfferWhere({ is_available, price_gt, price_lt, has_pickup, condition });
     where.offers = {
       some: offerWhere,
     };
-    let productOrderBy: Prisma.ProductOrderByWithRelationInput = {};
-    let offerOrderBy: Prisma.OfferOrderByWithRelationInput = {
-      price: 'asc',
-    };
 
-    switch (sort) {
-      case SearchSortEnum.popularity:
-        productOrderBy = {
-          view_count: 'desc',
-        };
-        break;
-
-      case SearchSortEnum.price_asc:
-        offerOrderBy = {
-          price: 'asc',
-        };
-        break;
-
-      case SearchSortEnum.price_desc:
-        offerOrderBy = {
-          price: 'desc',
-        };
-        break;
-
-      case SearchSortEnum.new:
-        productOrderBy = {
-          created_at: 'desc',
-        };
-        break;
-
-      case SearchSortEnum.top_seller:
-        productOrderBy = {
-          offer_count: 'desc',
-        };
-        break;
-    }
+    const { productOrderBy, offerOrderBy } = this.getSortOrder(sort);
 
     const [products, total, priceRange] = await this.prisma.$transaction([
       this.prisma.product.findMany({
@@ -770,33 +598,8 @@ export class SearchService {
         skip: (page - 1) * limit,
         take: limit,
         orderBy: productOrderBy,
-        include: {
-          brand: true,
-          productImages: true,
-          productSpecifications: {
-            where: {
-              type: 'KEY',
-            },
-            include: {
-              specification: {
-                select: {
-                  id: true,
-                  title: true,
-                },
-              },
-            },
-          },
-          offers: {
-            where: offerWhere,
-            orderBy: offerOrderBy,
-            include: {
-              shop: true,
-              badges: true,
-            },
-          },
-        },
+        include: this.getProductInclude(offerWhere, offerOrderBy),
       }),
-
       this.prisma.product.count({ where }),
       this.prisma.offer.aggregate({
         where: {
@@ -811,66 +614,14 @@ export class SearchService {
         },
       }),
     ]);
+
     if (total === 0) {
       return {
         data: [],
-        filters2: [
-          {
-            title: 'امکان خرید حضوری',
-            slug: 'has_pickup',
-            type: 'toggle-icon',
-            icon: 'MapPin',
-          },
-          {
-            title: 'وضعیت کارکرد',
-            slug: 'condition',
-            type: 'toggle-group',
-            items: [
-              {
-                name: 'نو',
-                value: 'new',
-              },
-              {
-                name: 'کارکرده',
-                value: 'stock',
-              },
-            ],
-          },
-          {
-            title: 'فقط موجودها',
-            slug: 'is_available',
-            type: 'toggle',
-          },
-          {
-            title: 'مرتب‌سازی',
-            slug: 'sort',
-            type: 'dropdown',
-            items: [
-              {
-                name: 'محبوب‌ترین',
-                value: 'popularity',
-              },
-              {
-                name: 'ارزان‌ترین',
-                value: 'price_asc',
-              },
-              {
-                name: 'گران‌ترین',
-                value: 'price_desc',
-              },
-              {
-                name: 'جدیدترین',
-                value: 'new',
-              },
-              {
-                name: 'بیشترین فروشنده',
-                value: 'top_seller',
-              },
-            ],
-          },
-        ],
+        filters2: this.getProductFilters2(),
       };
     }
+
     const popular_categories = await this.prisma.categoryLog.findMany({
       where: {
         category: {
@@ -885,159 +636,20 @@ export class SearchService {
         category: true,
       },
     });
-    const brandMap = new Map();
 
-    for (const product of products) {
-      if (!product.brand) continue;
-
-      if (!brandMap.has(product.brand.id)) {
-        brandMap.set(product.brand.id, {
-          id: product.brand.id,
-          slug: product.brand.slug,
-          name: product.brand.name,
-          name_en: product.brand.name_en,
-        });
-      }
-    }
-
-    const brands = Array.from(brandMap.values());
-
-    const selectedBrand = brands.find((brand) => brand.id === brand_id);
-
-    const specMap = new Map<
-      number,
-      {
-        title: string;
-        values: Set<string>;
-      }
-    >();
-
-    for (const product of products) {
-      for (const spec of product.productSpecifications) {
-        const specificationId = spec.specification.id;
-
-        if (!specMap.has(specificationId)) {
-          specMap.set(specificationId, {
-            title: spec.specification.title,
-            values: new Set(),
-          });
-        }
-
-        specMap.get(specificationId)?.values.add(spec.value);
-      }
-    }
-
-    const specFilters = Array.from(specMap.entries()).map(([id, data]) => ({
-      specification_id: id,
-
-      title: data.title,
-
-      slug: String(id),
-
-      type: 'multiple',
-
-      badge_text: specifications?.[String(id)]?.join(', ') || null,
-
-      items: Array.from(data.values).map((value) => ({
-        value,
-      })),
-    }));
-
-    const productsWithDisplayInfo = products.map((product) => {
-      const sellerCount = product.offers.length;
-
-      const mainOffer = sellerCount === 0 ? null : sellerCount === 1 ? product.offers[0] : product.offers.reduce((min, offer) => (Number(offer.price) < Number(min.price) ? offer : min));
-
-      const { offers, brand, productSpecifications, ...rest } = product;
-
-      return {
-        ...rest,
-        badges: mainOffer?.badges ?? [],
-        shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
-        shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
-        is_available: mainOffer?.is_available,
-      };
-    });
+    const brands = this.buildBrandFacets(products);
+    const specFilters = this.buildSpecFacets(products, specifications);
 
     return {
       title: `${category.title}`,
-      max_price: priceRange._max.price ? Number(priceRange._max.price) : 0,
-      min_price: priceRange._min.price ? Number(priceRange._min.price) : 0,
-      data: productsWithDisplayInfo,
+      ...this.getPriceBounds(priceRange),
+      data: products.map((product) => toProductDisplayInfo(product, ['brand', 'productSpecifications', 'category'])),
       suggested_categories,
       breadcrumb: breadcrumb,
       popular_categories: popular_categories.map((x) => x.category),
-      filters1: [
-        {
-          title: 'انتخاب برند',
-          slug: 'brand',
-          type: 'dropdown',
-          badge_text: selectedBrand ? selectedBrand.name1 : null,
-          items: brands,
-        },
-        ...specFilters,
-      ],
-      filters2: [
-        {
-          title: 'امکان خرید حضوری',
-          slug: 'has_pickup',
-          type: 'toggle-icon',
-          icon: 'MapPin',
-        },
-        {
-          title: 'وضعیت کارکرد',
-          slug: 'condition',
-          type: 'toggle-group',
-          items: [
-            {
-              name: 'نو',
-              value: 'new',
-            },
-            {
-              name: 'کارکرده',
-              value: 'stock',
-            },
-          ],
-        },
-        {
-          title: 'فقط موجودها',
-          slug: 'is_available',
-          type: 'toggle',
-        },
-        {
-          title: 'مرتب‌سازی',
-          slug: 'sort',
-          type: 'dropdown',
-          items: [
-            {
-              name: 'محبوب‌ترین',
-              value: 'popularity',
-            },
-            {
-              name: 'ارزان‌ترین',
-              value: 'price_asc',
-            },
-            {
-              name: 'گران‌ترین',
-              value: 'price_desc',
-            },
-            {
-              name: 'جدیدترین',
-              value: 'new',
-            },
-            {
-              name: 'بیشترین فروشنده',
-              value: 'top_seller',
-            },
-          ],
-        },
-      ],
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      filters1: this.buildFilters1(brands, specFilters, brand_id),
+      filters2: this.getProductFilters2(),
+      pagination: buildPagination(page, limit, total),
     };
   }
 

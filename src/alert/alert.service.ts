@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { CreateAlertDto, RemoveAlertDto } from './alert.dto';
+import { toProductDisplayInfo } from 'src/common/utils/product-display';
 
 @Injectable()
 export class AlertService {
@@ -43,25 +44,7 @@ export class AlertService {
         },
       },
     });
-    const productsWithDisplayInfo = alerts.map((favorite) => {
-      const product = favorite.product;
-
-      const sellerCount = product.offers.length;
-
-      const mainOffer = sellerCount === 0 ? null : sellerCount === 1 ? product.offers[0] : product.offers.reduce((min, offer) => (Number(offer.price) < Number(min.price) ? offer : min));
-      const { offers, ...rest } = product;
-
-      return {
-        ...rest,
-        badges: mainOffer?.badges ?? [],
-
-        shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
-
-        shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
-      };
-    });
-
-    return productsWithDisplayInfo;
+    return alerts.map((favorite) => toProductDisplayInfo(favorite.product));
   }
 
   async create(userId: number, dto: CreateAlertDto) {

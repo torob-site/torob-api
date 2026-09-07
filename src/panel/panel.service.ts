@@ -6,6 +6,7 @@ import jalaliday from 'jalaliday';
 import dayjs from 'dayjs';
 import { existsSync, mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { formatShopPrice, formatShopText } from 'src/common/utils/product-display';
 
 dayjs.extend(jalaliday);
 
@@ -2004,8 +2005,8 @@ export class PanelService {
           slug: product.slug,
           specifications: product.productSpecifications,
           image: product.productImages[0]?.url ?? null,
-          shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
-          shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
+          shop_price: mainOffer ? formatShopPrice(mainOffer.price, sellerCount) : '',
+          shop_text: formatShopText(mainOffer, sellerCount),
         };
       }),
     };

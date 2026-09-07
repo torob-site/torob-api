@@ -2,6 +2,9 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from 'src/prisma/prisma.service';
 import jalaliday from 'jalaliday';
 import dayjs from 'dayjs';
+import { serializeBigInts } from 'src/common/utils/serialize';
+import { toProductDisplayInfo } from 'src/common/utils/product-display';
+import { buildPagination } from 'src/common/utils/pagination';
 
 dayjs.extend(jalaliday);
 
@@ -116,9 +119,7 @@ export class ProductService {
     const breadcrumb = await this.getCategoryBreadcrumb(product.category_id);
 
     // Serialize BigInt and format variant prices
-    const serialized = JSON.parse(
-      JSON.stringify(product, (key, value) => (typeof value === 'bigint' ? Number(value) : value)),
-    );
+    const serialized = serializeBigInts(product);
 
     serialized.productVariants = serialized.productVariants.map((v: any) => {
       const lowestOffer = v.offers?.[0] ?? null;
@@ -207,12 +208,7 @@ export class ProductService {
             };
         }
       }),
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: buildPagination(page, limit, total),
     };
   }
 
@@ -314,31 +310,9 @@ export class ProductService {
       }),
     ]);
 
-    const productsWithDisplayInfo = products.map((product) => {
-      const sellerCount = product.offers.length;
-
-      const mainOffer = sellerCount === 0 ? null : product.offers[0];
-      const { offers, ...rest } = product;
-
-      return {
-        ...rest,
-
-        badges: mainOffer?.badges ?? [],
-
-        shop_price: mainOffer ? `${sellerCount > 1 ? 'از ' : ''}${Number(mainOffer.price).toLocaleString('fa-IR')} تومان` : '',
-
-        shop_text: mainOffer ? (sellerCount > 1 ? `در ${sellerCount} فروشگاه` : `در ${mainOffer.shop.shop_name}`) : '',
-        is_available: mainOffer?.is_available,
-      };
-    });
     return {
-      data: productsWithDisplayInfo,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      data: products.map((product) => toProductDisplayInfo(product)),
+      pagination: buildPagination(page, limit, total),
     };
   }
 
@@ -480,9 +454,7 @@ export class ProductService {
       ],
     });
 
-    const serialized = JSON.parse(
-      JSON.stringify(offers, (key, value) => (typeof value === 'bigint' ? Number(value) : value)),
-    );
+    const serialized = serializeBigInts(offers);
 
     // Calculate filter stats (always from ALL offers, not filtered)
     const allWhere: any = {
@@ -625,7 +597,7 @@ export class ProductService {
     });
 
     return {
-      sellers: JSON.parse(JSON.stringify(offers, (_, value) => (typeof value === 'bigint' ? Number(value) : value))),
+      sellers: serializeBigInts(offers),
     };
   }
 
