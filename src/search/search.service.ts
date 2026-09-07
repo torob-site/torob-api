@@ -4,6 +4,7 @@ import { SearchDto, SearchSortEnum } from './search.dto';
 import { Prisma } from '@prisma/client';
 import { toProductDisplayInfo, toShopProductDisplay } from 'src/common/utils/product-display';
 import { buildPagination } from 'src/common/utils/pagination';
+import { CategoryService } from 'src/category/category.service';
 
 type FacetProduct = {
   brand: { id: number; slug: string; name: string; name_en: string } | null;
@@ -13,7 +14,7 @@ type FacetProduct = {
 
 @Injectable()
 export class SearchService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private categoryService: CategoryService) {}
 
   // ─── Shared query builders ─────────────────────────────────────────────
 
@@ -406,27 +407,6 @@ export class SearchService {
     }
   }
 
-  async getCategoryBreadcrumb(categoryId: number) {
-    const rows = await this.prisma.$queryRaw<{ id: number; title: string }[]>`
-    WITH RECURSIVE tree AS (
-      SELECT id, title, parent_id, 0 as level
-      FROM \`categories\`
-      WHERE id = ${categoryId}
-      UNION ALL
-      SELECT c.id, c.title, c.parent_id, t.level + 1
-      FROM \`categories\` c
-      JOIN tree t ON t.parent_id = c.id
-    )
-    SELECT id, title FROM tree ORDER BY level DESC;
-  `;
-    return {
-      categories: rows.map((r) => ({
-        id: r.id,
-        title: r.title,
-      })),
-    };
-  }
-
   // ─── Endpoints ─────────────────────────────────────────────────────────
 
   async searchShop(shop_id: number, shop_name: string, limit: number, page: number, is_available?: boolean, sort?: SearchSortEnum, price_gt?: number, price_lt?: number, domain?: string | null, shop_logo?: string | null) {
@@ -491,7 +471,7 @@ export class SearchService {
 
   async searchProduct(page: number, limit: number, query?: string, has_pickup?: boolean, condition?: string, is_available?: boolean, sort?: SearchSortEnum, price_gt?: number, price_lt?: number, brand_id?: number, specifications?: Record<string, string[]>) {
     if (!query) {
-      throw new BadRequestException('query is not the found');
+      throw new BadRequestException('query is required');
     }
 
     const where = this.buildProductWhere({ q: query, brand_id, specifications });
@@ -574,7 +554,7 @@ export class SearchService {
       await this.logCategory(user_id, category_id);
     }
 
-    const breadcrumb = await this.getCategoryBreadcrumb(category.id);
+    const breadcrumb = await this.categoryService.getCategoryBreadcrumb(category.id);
     const suggested_categories = await this.prisma.category.findMany({
       where: {
         parent_id: category.parent_id,

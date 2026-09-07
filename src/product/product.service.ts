@@ -5,34 +5,13 @@ import dayjs from 'dayjs';
 import { serializeBigInts } from 'src/common/utils/serialize';
 import { toProductDisplayInfo } from 'src/common/utils/product-display';
 import { buildPagination } from 'src/common/utils/pagination';
+import { CategoryService } from 'src/category/category.service';
 
 dayjs.extend(jalaliday);
 
 @Injectable()
 export class ProductService {
-  constructor(private prisma: PrismaService) {}
-
-  async getCategoryBreadcrumb(categoryId: number) {
-    const rows = await this.prisma.$queryRaw<{ id: number; title: string; url: string }[]>`
-    WITH RECURSIVE tree AS (
-      SELECT id, title, url, parent_id, 0 as level
-      FROM \`categories\`
-      WHERE id = ${categoryId}
-      UNION ALL
-      SELECT c.id, c.title, c.url, c.parent_id, t.level + 1
-      FROM \`categories\` c
-      JOIN tree t ON t.parent_id = c.id
-    )
-    SELECT id, title, url FROM tree ORDER BY level DESC;
-  `;
-    return {
-      categories: rows.map((r) => ({
-        id: r.id,
-        title: r.title,
-        slug: r.url,
-      })),
-    };
-  }
+  constructor(private prisma: PrismaService, private categoryService: CategoryService) {}
 
   async get(product_id: number) {
     const product = await this.prisma.product.findUnique({
@@ -116,7 +95,7 @@ export class ProductService {
     if (!product) {
       throw new NotFoundException('Product not found');
     }
-    const breadcrumb = await this.getCategoryBreadcrumb(product.category_id);
+    const breadcrumb = await this.categoryService.getCategoryBreadcrumb(product.category_id);
 
     // Serialize BigInt and format variant prices
     const serialized = serializeBigInts(product);

@@ -88,4 +88,26 @@ export class CategoryService {
     });
     return { status: 200 };
   }
+
+  async getCategoryBreadcrumb(categoryId: number) {
+    const rows = await this.prisma.$queryRaw<{ id: number; title: string; url: string }[]>`
+    WITH RECURSIVE tree AS (
+      SELECT id, title, url, parent_id, 0 as level
+      FROM \`categories\`
+      WHERE id = ${categoryId}
+      UNION ALL
+      SELECT c.id, c.title, c.url, c.parent_id, t.level + 1
+      FROM \`categories\` c
+      JOIN tree t ON t.parent_id = c.id
+    )
+    SELECT id, title, url FROM tree ORDER BY level DESC;
+  `;
+    return {
+      categories: rows.map((r) => ({
+        id: r.id,
+        title: r.title,
+        slug: r.url,
+      })),
+    };
+  }
 }

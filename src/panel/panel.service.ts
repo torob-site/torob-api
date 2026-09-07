@@ -508,6 +508,22 @@ export class PanelService {
   }
 
   async getPermissions(shop_id: number, user_id: number) {
+    // Unifies shop/member validation with the shared getShopMember helper
+    const currentMemberRow = await this.getShopMember(shop_id, user_id, {
+      shopMembers: {
+        where: {
+          user_id,
+          is_deleted: false,
+        },
+        select: {
+          is_owner: true,
+          is_admin: true,
+          is_deleted: true,
+        },
+      },
+    });
+    const currentMember = currentMemberRow.shopMembers[0];
+
     const shopMembers = await this.prisma.shopMember.findMany({
       where: {
         shop_id,
@@ -526,20 +542,6 @@ export class PanelService {
         },
       },
     });
-
-    if (!shopMembers || shopMembers.length === 0) {
-      throw new NotFoundException('shop not found');
-    }
-
-    const currentMember = shopMembers.find((member) => member.user_id === user_id);
-
-    if (!currentMember) {
-      throw new ForbiddenException('you are not a member of this shop');
-    }
-
-    if (currentMember.is_deleted) {
-      throw new ForbiddenException('you do not have permission');
-    }
 
     const users = shopMembers.map((member) => {
       const access: string[] = [];
@@ -970,28 +972,30 @@ export class PanelService {
       throw new BadRequestException('هیچ فیلدی برای بروزرسانی ارسال نشده است');
     }
 
-    await this.prisma.offer.update({
-      where: {
-        id: product_id,
-      },
-      data,
-    });
-
-    // ایجاد OfferHistory اگر قیمت تغییر کرده باشد
-    if (price && oldPrice !== null && BigInt(price) !== BigInt(oldPrice)) {
-      const historyType = BigInt(price) > BigInt(oldPrice)
-        ? OfferHistoryType.PRICE_INCREASE
-        : OfferHistoryType.PRICE_DECREASE;
-
-      await this.prisma.offerHistory.create({
-        data: {
-          offer_id: product_id,
-          old_price: Number(oldPrice),
-          new_price: Number(price),
-          type: historyType,
+    await this.prisma.$transaction(async (tx) => {
+      await tx.offer.update({
+        where: {
+          id: product_id,
         },
+        data,
       });
-    }
+
+      // ایجاد OfferHistory اگر قیمت تغییر کرده باشد
+      if (price && oldPrice !== null && price !== Number(oldPrice)) {
+        const historyType = price > Number(oldPrice)
+          ? OfferHistoryType.PRICE_INCREASE
+          : OfferHistoryType.PRICE_DECREASE;
+
+        await tx.offerHistory.create({
+          data: {
+            offer_id: product_id,
+            old_price: Number(oldPrice),
+            new_price: price,
+            type: historyType,
+          },
+        });
+      }
+    });
   }
 
   async getShopTransactions(shop_id: number, user_id: number) {
