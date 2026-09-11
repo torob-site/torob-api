@@ -538,3 +538,19 @@ export class CreateOfferDto {
   @IsString()
   description?: string;
 }
+
+export class AddMemberDto {
+  @ApiProperty({ description: 'شماره موبایل عضو جدید' })
+  @IsNotEmpty({ message: 'شماره موبایل الزامی است' })
+  @IsString()
+  @Matches(/^09[0-9]{9}$/, { message: 'شماره موبایل باید با 09 شروع شود و ۱۱ رقم باشد' })
+  phone: string;
+}
+
+export class TransferOwnershipDto {
+  @ApiProperty({ description: 'شماره موبایل عضوی که مالکیت به او منتقل می‌شود' })
+  @IsNotEmpty({ message: 'شماره موبایل الزامی است' })
+  @IsString()
+  @Matches(/^09[0-9]{9}$/, { message: 'شماره موبایل باید با 09 شروع شود و ۱۱ رقم باشد' })
+  phone: string;
+}

@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { CreateLocationDto, CreateOfferDto, FindMergeCandidatesDto, SuggestCategoryDto, GetProductsQueryDto, GetShopStatisticsDto, ProductSortField, ReportAction, StatisticsRange, UpdateBusinessBackgroundDto, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto, UpdateWorkingHoursDto } from './panel.dto';
+import { AddMemberDto, CreateLocationDto, CreateOfferDto, FindMergeCandidatesDto, SuggestCategoryDto, GetProductsQueryDto, GetShopStatisticsDto, ProductSortField, ReportAction, StatisticsRange, UpdateBusinessBackgroundDto, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto, UpdateWorkingHoursDto } from './panel.dto';
 import { BusinessLicenseType, ContactPlatform, ContactType, DayOfWeek, OfferHistoryType, Prisma, ReportStatus, ReportType, VerificationSection } from '@prisma/client';
 import jalaliday from 'jalaliday';
 import dayjs from 'dayjs';
@@ -572,6 +572,111 @@ export class PanelService {
       },
       users,
     };
+  }
+
+  /**
+   * افزودن عضو جدید به فروشگاه.
+   *
+   * تأیید شماره از طریق روت‌های عمومی /auth/send-code و /auth/verify-code انجام می‌شود
+   * (کد فعلا الکی است — فقط شماره موبایل ملاک است) و این روت فقط بعد از تأیید
+   * از سمت فرانت صدا زده می‌شود. عضو همیشه با دسترسی ادمین اضافه می‌شود.
+   */
+  async addMember(shop_id: number, user_id: number, { phone }: AddMemberDto) {
+    const member = await this.getShopMember(shop_id, user_id);
+    if (!member.shopMembers[0].is_owner) {
+      throw new ForbiddenException('only the owner can add members');
+    }
+
+    const user = await this.prisma.user.upsert({
+      where: { phone },
+      create: { phone },
+      update: {},
+    });
+
+    const existing = await this.prisma.shopMember.findFirst({
+      where: {
+        shop_id,
+        user_id: user.id,
+        is_deleted: false,
+      },
+    });
+    if (existing) {
+      throw new BadRequestException('این کاربر قبلاً عضو فروشگاه است');
+    }
+
+    await this.prisma.shopMember.create({
+      data: {
+        shop_id,
+        user_id: user.id,
+        is_admin: true,
+      },
+    });
+
+    return { message: 'ok' };
+  }
+
+  async removeUser(shop_id: number, user_id: number, phone: string) {
+    const member = await this.getShopMember(shop_id, user_id);
+    if (!member.shopMembers[0].is_owner) {
+      throw new ForbiddenException('only the owner can remove members');
+    }
+
+    const target = await this.prisma.shopMember.findFirst({
+      where: {
+        shop_id,
+        is_deleted: false,
+        user: { phone },
+      },
+    });
+    if (!target) {
+      throw new NotFoundException('user is not a member of this shop');
+    }
+    if (target.is_owner) {
+      throw new BadRequestException('cannot remove the owner');
+    }
+
+    await this.prisma.shopMember.update({
+      where: { id: target.id },
+      data: { is_deleted: true },
+    });
+
+    return { message: 'ok' };
+  }
+
+  async transferOwnership(shop_id: number, user_id: number, phone: string) {
+    const member = await this.getShopMember(shop_id, user_id);
+    if (!member.shopMembers[0].is_owner) {
+      throw new ForbiddenException('only the owner can transfer ownership');
+    }
+
+    const target = await this.prisma.shopMember.findFirst({
+      where: {
+        shop_id,
+        is_deleted: false,
+        user: { phone },
+      },
+    });
+    if (!target) {
+      throw new NotFoundException('user is not a member of this shop');
+    }
+    if (target.user_id === user_id) {
+      throw new BadRequestException('you are already the owner');
+    }
+
+    const currentOwnerMemberId = member.shopMembers[0].id;
+
+    await this.prisma.$transaction([
+      this.prisma.shopMember.update({
+        where: { id: target.id },
+        data: { is_owner: true, is_admin: true },
+      }),
+      this.prisma.shopMember.update({
+        where: { id: currentOwnerMemberId },
+        data: { is_owner: false, is_admin: true },
+      }),
+    ]);
+
+    return { message: 'ok' };
   }
 
   async getNationalCard(shop_id: number, user_id: number) {

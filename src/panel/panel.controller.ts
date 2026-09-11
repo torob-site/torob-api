@@ -1,6 +1,6 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { JwtAuthGuard } from 'src/auth/auth.guard';
-import { CreateOfferDto, FindMergeCandidatesDto, GetProductsQueryDto, GetShopStatisticsDto, SuggestCategoryDto, UpdateBusinessBackgroundDto, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto } from './panel.dto';
+import { AddMemberDto, CreateOfferDto, FindMergeCandidatesDto, GetProductsQueryDto, GetShopStatisticsDto, SuggestCategoryDto, TransferOwnershipDto, UpdateBusinessBackgroundDto, UpdateBusinessTypeDto, UpdateContactInfoDto, UpdateLocationDto, UpdateOwnerInfoDto, UpdateProductDto, UpdateReportStatusDto, UpdateShopInstagramUserNameDto, UpdateShopStatusDto } from './panel.dto';
 import { PanelService } from './panel.service';
 import { UserPipe } from 'src/auth/user.decorator';
 import { type User } from '@prisma/client';
@@ -109,6 +109,21 @@ export class PanelController {
   @Get(':shop_id/permissions')
   async getPermissions(@UserPipe() user: User, @Param('shop_id', ParseIntPipe) shop_id: number) {
     return await this.panelService.getPermissions(shop_id, user.id);
+  }
+
+  @Post(':shop_id/users')
+  async addUser(@Param('shop_id', ParseIntPipe) shop_id: number, @Body() dto: AddMemberDto, @UserPipe() user: User) {
+    return this.panelService.addMember(shop_id, user.id, dto);
+  }
+
+  @Delete(':shop_id/users/:phone')
+  async removeUser(@Param('shop_id', ParseIntPipe) shop_id: number, @Param('phone') phone: string, @UserPipe() user: User) {
+    return this.panelService.removeUser(shop_id, user.id, phone);
+  }
+
+  @Put(':shop_id/users/:phone/transfer-ownership')
+  async transferOwnership(@Param('shop_id', ParseIntPipe) shop_id: number, @Param('phone') phone: string, @UserPipe() user: User) {
+    return this.panelService.transferOwnership(shop_id, user.id, phone);
   }
 
   @Get(':shop_id/national-card')
