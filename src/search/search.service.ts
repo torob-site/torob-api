@@ -14,7 +14,10 @@ type FacetProduct = {
 
 @Injectable()
 export class SearchService {
-  constructor(private prisma: PrismaService, private categoryService: CategoryService) {}
+  constructor(
+    private prisma: PrismaService,
+    private categoryService: CategoryService,
+  ) {}
 
   // ─── Shared query builders ─────────────────────────────────────────────
 
@@ -701,6 +704,7 @@ export class SearchService {
           shop_name: {
             contains: q,
           },
+          type: 'ONLINE_SHOP',
         },
         take: 2,
         select: {

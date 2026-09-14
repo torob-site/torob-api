@@ -401,10 +401,10 @@ export class ShopService {
 
     const owner = await this.prisma.shopOwner.create({
       data: {
-        first_name: '',
-        last_name: '',
-        national_code: '',
-        mobile_phone: '',
+        first_name: null,
+        last_name: null,
+        national_code: null,
+        mobile_phone: null,
         birth_date: null,
       },
     });
