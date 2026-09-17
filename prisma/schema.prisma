@@ -71,10 +71,10 @@ model Favorite {
   id Int @id @default(autoincrement())
 
   product_id Int
-  product    Product @relation(fields: [product_id], references: [id])
+  product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   user_id Int
-  user    User @relation(fields: [user_id], references: [id])
+  user    User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   created_at DateTime @default(now()) @db.Timestamp(0)
 
@@ -182,7 +182,7 @@ model Product {
   is_authentic Boolean @default(false)
 
   category_id Int
-  category    Category @relation(fields: [category_id], references: [id])
+  category    Category @relation(fields: [category_id], references: [id], onDelete: Cascade)
 
   brand_id Int?
   brand    Brand? @relation(fields: [brand_id], references: [id])
@@ -207,10 +207,10 @@ model ProductView {
   id Int @id @default(autoincrement())
 
   user_id Int
-  user    User @relation(fields: [user_id], references: [id])
+  user    User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   product_id Int
-  product    Product @relation(fields: [product_id], references: [id])
+  product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   created_at DateTime @default(now()) @db.Timestamp(0)
 
@@ -233,7 +233,7 @@ model OfferClick {
   shop    Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
 
   user_id Int?
-  user    User? @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  user    User? @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   ip String? @db.VarChar(45)
 
@@ -257,7 +257,7 @@ model ProductVariant {
   id Int @id @default(autoincrement())
 
   product_id Int
-  product    Product @relation(fields: [product_id], references: [id])
+  product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   title String
 
@@ -277,7 +277,7 @@ model ProductImage {
   is_main Boolean @default(false)
 
   product_id Int
-  product    Product @relation(fields: [product_id], references: [id])
+  product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   created_at DateTime @default(now()) @db.Timestamp(0)
   updated_at DateTime @updatedAt @db.Timestamp(0)
@@ -314,7 +314,7 @@ model ProductSpecification {
   specification    Specification @relation(fields: [specification_id], references: [id])
 
   product_id Int
-  product    Product @relation(fields: [product_id], references: [id])
+  product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   @@unique([product_id, specification_id])
   @@index([product_id])
@@ -345,7 +345,7 @@ model ShopImage {
   is_main Boolean @default(true)
 
   shop_id Int
-  shop    Shop @relation(fields: [shop_id], references: [id])
+  shop    Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
 
   created_at DateTime @default(now()) @db.Timestamp(0)
   updated_at DateTime @updatedAt @db.Timestamp(0)
@@ -372,8 +372,8 @@ model ShopCategory {
   shop_id     Int
   category_id Int
 
-  shop     Shop     @relation(fields: [shop_id], references: [id])
-  category Category @relation(fields: [category_id], references: [id])
+  shop     Shop     @relation(fields: [shop_id], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [category_id], references: [id], onDelete: Cascade)
 
   @@id([shop_id, category_id])
   @@map("shopCategories")
@@ -386,7 +386,7 @@ model ShopContact {
   value    String
 
   shop_id Int
-  shop    Shop @relation(fields: [shop_id], references: [id])
+  shop    Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
 
   created_at DateTime @default(now()) @db.Timestamp(0)
   updated_at DateTime @updatedAt
@@ -420,7 +420,7 @@ model ShopWorkingHour {
   end_time   DateTime @db.Time(0)
 
   shop_id Int
-  shop    Shop @relation(fields: [shop_id], references: [id])
+  shop    Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
 
   @@unique([shop_id, day, shift_number])
 }
@@ -442,7 +442,7 @@ model ShopDocument {
   business_license_type BusinessLicenseType?
 
   shop_id Int
-  shop    Shop @relation(fields: [shop_id], references: [id])
+  shop    Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
 
   created_at DateTime @default(now()) @db.Timestamp(0)
   updated_at DateTime @updatedAt @db.Timestamp(0)
@@ -462,7 +462,7 @@ model ShopVerification {
   id Int @id @default(autoincrement())
 
   shop_id Int
-  shop    Shop @relation(fields: [shop_id], references: [id])
+  shop    Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
 
   section VerificationSection
   status  VerificationStatus  @default(PENDING_FILLING)
@@ -507,10 +507,10 @@ model ShopMember {
   is_admin   Boolean @default(false)
   is_deleted Boolean @default(false)
   user_id    Int
-  user       User    @relation(fields: [user_id], references: [id])
+  user       User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   shop_id Int
-  shop    Shop @relation(fields: [shop_id], references: [id])
+  shop    Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
 
   created_at DateTime @default(now()) @db.Timestamp(0)
   updated_at DateTime @updatedAt @db.Timestamp(0)
@@ -540,8 +540,8 @@ model CategoryLog {
 
   count Int @default(1)
 
-  user     User     @relation(fields: [user_id], references: [id])
-  category Category @relation(fields: [category_id], references: [id])
+  user     User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [category_id], references: [id], onDelete: Cascade)
 
   created_at DateTime @default(now()) @db.Timestamp(0)
   updated_at DateTime @updatedAt @db.Timestamp(0)
@@ -587,7 +587,7 @@ model Offer {
   variant    ProductVariant? @relation(fields: [variant_id], references: [id])
 
   shop_id Int
-  shop    Shop @relation(fields: [shop_id], references: [id])
+  shop    Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
 
   price         BigInt
   status        OfferStatus @default(CONFIRMED)
@@ -696,13 +696,13 @@ model Report {
   id Int @id @default(autoincrement())
 
   user_id Int
-  user    User @relation(fields: [user_id], references: [id])
+  user    User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   shop_id Int
-  shop    Shop @relation(fields: [shop_id], references: [id])
+  shop    Shop @relation(fields: [shop_id], references: [id], onDelete: Cascade)
 
   product_id Int
-  product    Product @relation(fields: [product_id], references: [id])
+  product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   report_reason_id Int
   reportReason     ReportReason @relation(fields: [report_reason_id], references: [id])
@@ -732,7 +732,7 @@ model UserSearchHistory {
   keyword String
 
   user_id Int
-  user    User @relation(fields: [user_id], references: [id])
+  user    User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   created_at DateTime @default(now()) @db.Timestamp(0)
 
@@ -763,10 +763,10 @@ model Alert {
   watch_availability Boolean? @default(false)
 
   user_id Int
-  user    User @relation(fields: [user_id], references: [id])
+  user    User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   product_id Int
-  product    Product @relation(fields: [product_id], references: [id])
+  product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   variant_id Int?
   variant    ProductVariant? @relation(fields: [variant_id], references: [id])
@@ -802,7 +802,7 @@ model ProductPriceHistory {
   id Int @id @default(autoincrement())
 
   product_id Int
-  product    Product @relation(fields: [product_id], references: [id])
+  product    Product @relation(fields: [product_id], references: [id], onDelete: Cascade)
 
   date DateTime @db.Date
 

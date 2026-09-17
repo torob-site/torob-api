@@ -5,7 +5,7 @@ import { PrismaService } from 'src/prisma/prisma.service';
 export class CategoryService {
   constructor(private prisma: PrismaService) {}
 
-  private buildCategoryTree(categories: any[]) {
+  private buildCategoryTree(categories: any[], productCounts: Map<number, number> = new Map()) {
     const map = new Map<number, any>();
 
     for (const category of categories) {
@@ -14,6 +14,7 @@ export class CategoryService {
         title: category.title,
         url: category.url,
         parent_id: category.parent_id,
+        product_count: productCounts.get(category.id) ?? 0,
         children: [],
       });
     }
@@ -33,21 +34,62 @@ export class CategoryService {
       }
     }
 
+    // Post-order pass: every parent gets the sum of its subtree's product counts.
+    const accumulate = (node: any): number => {
+      const childrenSum = node.children.reduce((acc: number, child: any) => acc + accumulate(child), 0);
+      node.product_count += childrenSum;
+      return node.product_count;
+    };
+    tree.forEach(accumulate);
+
     return tree;
   }
 
-  async all() {
-    const categories = await this.prisma.category.findMany({
-      orderBy: { id: 'asc' },
-      select: {
-        id: true,
-        title: true,
-        url: true,
-        parent_id: true,
+  /**
+   * Direct product count per category. Parent categories have no direct products,
+   * so the tree builder adds up the subtree counts for them.
+   * Only products with at least one ACTIVE offer are counted, because those are
+   * the only ones ever shown by search/browse — otherwise the badge would show
+   * numbers that can't be reached on the site.
+   */
+  private async getProductCounts() {
+    const rows = await this.prisma.product.groupBy({
+      by: ['category_id'],
+      _count: {
+        category_id: true,
+      },
+      where: {
+        offers: {
+          some: {
+            is_active: true,
+          },
+        },
       },
     });
 
-    const tree = this.buildCategoryTree(categories);
+    const counts = new Map<number, number>();
+    for (const row of rows) {
+      counts.set(row.category_id, row._count.category_id);
+    }
+    return counts;
+  }
+
+  async all() {
+    const [categories, productCounts] = await Promise.all([
+      this.prisma.category.findMany({
+        orderBy: { id: 'asc' },
+        select: {
+          id: true,
+          title: true,
+          url: true,
+          parent_id: true,
+        },
+      }),
+      this.getProductCounts(),
+    ]
+    );
+
+    const tree = this.buildCategoryTree(categories, productCounts);
     return tree;
   }
 

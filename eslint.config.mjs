@@ -11,12 +11,10 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   eslintPluginPrettierRecommended,
-  {
-    languageOptions: {
-      globals: {
-        ...globals.node,
-        ...globals.jest,
-      },
+  {      languageOptions: {
+        globals: {
+          ...globals.node,
+        },
       sourceType: 'commonjs',
       parserOptions: {
         projectService: true,

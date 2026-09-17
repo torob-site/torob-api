@@ -220,7 +220,57 @@ export class SearchService {
     return Array.from(brandMap.values());
   }
 
-  private buildSpecFacets(products: FacetProduct[], specifications?: Record<string, string[]>) {
+  /**
+   * Fetch brand + KEY specifications of every product matching the base filters
+   * (category / text search + offer filters). Brand and specification filters are
+   * deliberately NOT applied here: the filter options must stay stable after the
+   * user picks one of them (e.g. selecting RAM 12 must not hide RAM 18 from the
+   * spec filter list).
+   */
+  private getFacetProducts(params: { q?: string; category_id?: number; categoryIds?: number[]; offerWhere: Prisma.OfferWhereInput }) {
+    const where = this.buildProductWhere({ q: params.q, category_id: params.category_id });
+    if (params.categoryIds) {
+      where.category_id = { in: params.categoryIds };
+    }
+    where.offers = {
+      some: params.offerWhere,
+    };
+
+    return this.prisma.product.findMany({
+      where,
+      select: {
+        brand: {
+          select: {
+            id: true,
+            slug: true,
+            name: true,
+            name_en: true,
+          },
+        },
+        productSpecifications: {
+          where: {
+            type: 'KEY' as const,
+          },
+          include: {
+            specification: {
+              select: {
+                id: true,
+                title: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Spec facets computed from the facet universe (see getFacetProducts) instead of
+   * the current page's filtered products. All existing values of each spec are
+   * always shown — selections never remove options (they may return zero results,
+   * which is the user's choice to explore).
+   */
+  private buildSpecFacets(facetProducts: FacetProduct[], specifications?: Record<string, string[]>) {
     const specMap = new Map<
       number,
       {
@@ -229,7 +279,7 @@ export class SearchService {
       }
     >();
 
-    for (const product of products) {
+    for (const product of facetProducts) {
       for (const spec of product.productSpecifications) {
         const specificationId = spec.specification.id;
 
@@ -485,7 +535,7 @@ export class SearchService {
 
     const { productOrderBy, offerOrderBy } = this.getSortOrder(sort);
 
-    const [products, total, priceRange] = await this.prisma.$transaction([
+    const [products, total, priceRange, facetProducts] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
         orderBy: productOrderBy,
@@ -506,17 +556,27 @@ export class SearchService {
           price: true,
         },
       }),
+
+      // Facet universe: base filters only (no brand/spec filters) — see getFacetProducts.
+      this.getFacetProducts({ q: query, offerWhere }),
     ]);
 
     if (total === 0) {
       return {
         data: [],
+        // Even with no results, keep the filters available so the user can
+        // loosen their selection (e.g. uncheck a spec value).
+        filters1: this.buildFilters1(
+          this.buildBrandFacets(facetProducts),
+          this.buildSpecFacets(facetProducts, specifications),
+          brand_id,
+        ),
         filters2: this.getProductFilters2(),
       };
     }
 
-    const brands = this.buildBrandFacets(products);
-    const specFilters = this.buildSpecFacets(products, specifications);
+    const brands = this.buildBrandFacets(facetProducts);
+    const specFilters = this.buildSpecFacets(facetProducts, specifications);
 
     const categoryMap = new Map<number, { id: number; title: string; url: string }>();
 
@@ -544,6 +604,23 @@ export class SearchService {
     };
   }
 
+  /**
+   * The category itself plus every descendant id. Browsing a parent category
+   * (e.g. "کالای دیجیتال") must include products of all its subcategories,
+   * matching the product_count badges shown in the category menu.
+   */
+  private async getCategoryWithDescendantIds(category_id: number): Promise<number[]> {
+    const rows = await this.prisma.$queryRaw<{ id: number }[]>`
+      WITH RECURSIVE tree AS (
+        SELECT id FROM \`categories\` WHERE id = ${category_id}
+        UNION ALL
+        SELECT c.id FROM \`categories\` c JOIN tree t ON c.parent_id = t.id
+      )
+      SELECT id FROM tree;
+    `;
+    return rows.map((r) => Number(r.id));
+  }
+
   async searchCategory(page: number, limit: number, has_pickup?: boolean, condition?: string, is_available?: boolean, sort?: SearchSortEnum, price_gt?: number, price_lt?: number, category_id?: number, brand_id?: number, specifications?: Record<string, string[]>, q?: string, user_id?: number) {
     const category = await this.prisma.category.findUnique({
       where: {
@@ -567,7 +644,11 @@ export class SearchService {
       },
     });
 
-    const where = this.buildProductWhere({ q, category_id, brand_id, specifications });
+    // والد + همهٔ زیرشاخه‌ها (product_count منو هم با همین ملاک محاسبه می‌شود)
+    const categoryIds = await this.getCategoryWithDescendantIds(category.id);
+
+    const where = this.buildProductWhere({ q, brand_id, specifications });
+    where.category_id = { in: categoryIds };
     const offerWhere = this.buildOfferWhere({ is_available, price_gt, price_lt, has_pickup, condition });
     where.offers = {
       some: offerWhere,
@@ -575,7 +656,7 @@ export class SearchService {
 
     const { productOrderBy, offerOrderBy } = this.getSortOrder(sort);
 
-    const [products, total, priceRange] = await this.prisma.$transaction([
+    const [products, total, priceRange, facetProducts] = await this.prisma.$transaction([
       this.prisma.product.findMany({
         where,
         skip: (page - 1) * limit,
@@ -596,11 +677,21 @@ export class SearchService {
           price: true,
         },
       }),
+
+      // Facet universe: base filters only (no brand/spec filters) — see getFacetProducts.
+      this.getFacetProducts({ q, categoryIds, offerWhere }),
     ]);
 
     if (total === 0) {
       return {
         data: [],
+        // Even with no results, keep the filters available so the user can
+        // loosen their selection (e.g. uncheck a spec value).
+        filters1: this.buildFilters1(
+          this.buildBrandFacets(facetProducts),
+          this.buildSpecFacets(facetProducts, specifications),
+          brand_id,
+        ),
         filters2: this.getProductFilters2(),
       };
     }
@@ -620,8 +711,8 @@ export class SearchService {
       },
     });
 
-    const brands = this.buildBrandFacets(products);
-    const specFilters = this.buildSpecFacets(products, specifications);
+    const brands = this.buildBrandFacets(facetProducts);
+    const specFilters = this.buildSpecFacets(facetProducts, specifications);
 
     return {
       title: `${category.title}`,
