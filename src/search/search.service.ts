@@ -154,6 +154,56 @@ export class SearchService {
     return orderBy;
   }
 
+  /**
+   * Product-level price sorting: order products by their cheapest matching offer.
+   * Prisma cannot orderBy a to-many relation's min price directly, so the ordered
+   * page of ids is computed with groupBy (honouring all product/offer filters) and
+   * the full page is then fetched preserving that order.
+   */
+  private async getProductsSortedByPrice(params: {
+    where: Prisma.ProductWhereInput;
+    offerWhere: Prisma.OfferWhereInput;
+    dir: 'asc' | 'desc';
+    page: number;
+    limit: number;
+  }) {
+    const groups = await this.prisma.offer.groupBy({
+      by: ['product_id'],
+      where: {
+        product: params.where,
+        ...params.offerWhere,
+      },
+      _min: {
+        price: true,
+      },
+    });
+
+    const sorted = groups.slice().sort((a, b) => {
+      const pa = a._min.price ?? BigInt(0);
+      const pb = b._min.price ?? BigInt(0);
+      if (pa === pb) return 0;
+      const aIsCheaper = pa < pb;
+      return params.dir === 'asc' ? (aIsCheaper ? -1 : 1) : aIsCheaper ? 1 : -1;
+    });
+
+    const ids = sorted
+      .slice((params.page - 1) * params.limit, params.page * params.limit)
+      .map((g) => g.product_id);
+
+    if (ids.length === 0) return [];
+
+    const rows = await this.prisma.product.findMany({
+      where: {
+        ...params.where,
+        id: { in: ids },
+      },
+      include: this.getProductInclude(params.offerWhere, { price: params.dir }),
+    });
+
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return ids.map((id) => byId.get(id)).filter((p) => p !== undefined);
+  }
+
   private getProductInclude(offerWhere: Prisma.OfferWhereInput, offerOrderBy: Prisma.OfferOrderByWithRelationInput) {
     // Kept as a single literal (not annotated as Prisma.ProductInclude) so Prisma
     // can infer the exact result payload. `category` is always included; callers
@@ -535,14 +585,22 @@ export class SearchService {
 
     const { productOrderBy, offerOrderBy } = this.getSortOrder(sort);
 
-    const [products, total, priceRange, facetProducts] = await this.prisma.$transaction([
-      this.prisma.product.findMany({
-        where,
-        orderBy: productOrderBy,
-        skip: (page - 1) * limit,
-        take: limit,
-        include: this.getProductInclude(offerWhere, offerOrderBy),
-      }),
+    // price_asc / price_desc must order the PRODUCTS themselves, not just their
+    // offers; Prisma cannot orderBy a to-many relation's min price, so a groupBy
+    // query produces the ordered id page (see getProductsSortedByPrice).
+    const isPriceSort = sort === SearchSortEnum.price_asc || sort === SearchSortEnum.price_desc;
+
+    const products = isPriceSort
+      ? await this.getProductsSortedByPrice({ where, offerWhere, dir: sort === SearchSortEnum.price_desc ? 'desc' : 'asc', page, limit })
+      : await this.prisma.product.findMany({
+          where,
+          orderBy: productOrderBy,
+          skip: (page - 1) * limit,
+          take: limit,
+          include: this.getProductInclude(offerWhere, offerOrderBy),
+        });
+
+    const [total, priceRange, facetProducts] = await this.prisma.$transaction([
       this.prisma.product.count({ where }),
       this.prisma.offer.aggregate({
         where: {
@@ -656,14 +714,20 @@ export class SearchService {
 
     const { productOrderBy, offerOrderBy } = this.getSortOrder(sort);
 
-    const [products, total, priceRange, facetProducts] = await this.prisma.$transaction([
-      this.prisma.product.findMany({
-        where,
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: productOrderBy,
-        include: this.getProductInclude(offerWhere, offerOrderBy),
-      }),
+    // Same price-sort fix as searchProduct (see getProductsSortedByPrice).
+    const isPriceSort = sort === SearchSortEnum.price_asc || sort === SearchSortEnum.price_desc;
+
+    const products = isPriceSort
+      ? await this.getProductsSortedByPrice({ where, offerWhere, dir: sort === SearchSortEnum.price_desc ? 'desc' : 'asc', page, limit })
+      : await this.prisma.product.findMany({
+          where,
+          skip: (page - 1) * limit,
+          take: limit,
+          orderBy: productOrderBy,
+          include: this.getProductInclude(offerWhere, offerOrderBy),
+        });
+
+    const [total, priceRange, facetProducts] = await this.prisma.$transaction([
       this.prisma.product.count({ where }),
       this.prisma.offer.aggregate({
         where: {
