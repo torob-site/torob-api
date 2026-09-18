@@ -54,7 +54,11 @@ export class HistoryService {
       }
       return { status: 200 };
     } catch (error) {
-      console.error(`Error to set view`);
+      // Unique-constraint race (the same view inserted twice) is harmless.
+      if ((error as { code?: string })?.code === 'P2002') {
+        return { status: 200 };
+      }
+      console.error('Error to set view:', error);
       return { status: 200 };
     }
   }
