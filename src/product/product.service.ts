@@ -307,6 +307,11 @@ export class ProductService {
         shop_id: true,
         is_active: true,
         price: true,
+        shop: {
+          select: {
+            domain: true,
+          },
+        },
       },
     });
 
@@ -343,7 +348,20 @@ export class ProductService {
       }),
     ]);
 
-    return offer.more_info_url;
+    // Offers may have an empty more_info_url (e.g. seeded/offline shops).
+    // Redirecting to an empty string triggers "Provide a url argument" and
+    // breaks the user's tab, so fall back to the shop domain or the homepage.
+    if (offer.more_info_url && offer.more_info_url.trim() !== '') {
+      return offer.more_info_url;
+    }
+
+    const domain = offer.shop?.domain?.trim();
+    if (domain) {
+      const base = /^https?:\/\//i.test(domain) ? domain : `https://${domain}`;
+      return `${base.replace(/\/+$/, '')}/products/${offer.product_id}`;
+    }
+
+    return '/';
   }
 
   async offers(product_id: number, user_id?: number, filter?: string) {
